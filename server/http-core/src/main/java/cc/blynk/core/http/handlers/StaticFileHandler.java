@@ -1,11 +1,25 @@
 package cc.blynk.core.http.handlers;
 
-import cc.blynk.server.core.protocol.handlers.DefaultExceptionHandler;
-import cc.blynk.utils.ContentTypeUtil;
-import cc.blynk.utils.ServerProperties;
+import cc.blynk.core.http.utils.ContentTypeUtil;
+import cc.blynk.utils.FileUtils;
+import cc.blynk.utils.properties.ServerProperties;
 import io.netty.buffer.Unpooled;
-import io.netty.channel.*;
-import io.netty.handler.codec.http.*;
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelFutureListener;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.DefaultFileRegion;
+import io.netty.handler.codec.http.DefaultFullHttpResponse;
+import io.netty.handler.codec.http.DefaultHttpResponse;
+import io.netty.handler.codec.http.FullHttpRequest;
+import io.netty.handler.codec.http.FullHttpResponse;
+import io.netty.handler.codec.http.HttpChunkedInput;
+import io.netty.handler.codec.http.HttpHeaderValues;
+import io.netty.handler.codec.http.HttpMethod;
+import io.netty.handler.codec.http.HttpResponse;
+import io.netty.handler.codec.http.HttpResponseStatus;
+import io.netty.handler.codec.http.HttpUtil;
+import io.netty.handler.codec.http.LastHttpContent;
 import io.netty.handler.ssl.SslHandler;
 import io.netty.handler.stream.ChunkedFile;
 import io.netty.util.ReferenceCountUtil;
@@ -20,10 +34,27 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.text.SimpleDateFormat;
-import java.util.*;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.GregorianCalendar;
+import java.util.Locale;
+import java.util.TimeZone;
+import java.util.regex.Pattern;
 
-import static io.netty.handler.codec.http.HttpHeaderNames.*;
-import static io.netty.handler.codec.http.HttpResponseStatus.*;
+import static cc.blynk.server.core.protocol.handlers.DefaultExceptionHandler.handleGeneralException;
+import static io.netty.handler.codec.http.HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN;
+import static io.netty.handler.codec.http.HttpHeaderNames.CACHE_CONTROL;
+import static io.netty.handler.codec.http.HttpHeaderNames.CONNECTION;
+import static io.netty.handler.codec.http.HttpHeaderNames.CONTENT_LENGTH;
+import static io.netty.handler.codec.http.HttpHeaderNames.CONTENT_TYPE;
+import static io.netty.handler.codec.http.HttpHeaderNames.DATE;
+import static io.netty.handler.codec.http.HttpHeaderNames.EXPIRES;
+import static io.netty.handler.codec.http.HttpHeaderNames.IF_MODIFIED_SINCE;
+import static io.netty.handler.codec.http.HttpHeaderNames.LAST_MODIFIED;
+import static io.netty.handler.codec.http.HttpResponseStatus.BAD_REQUEST;
+import static io.netty.handler.codec.http.HttpResponseStatus.NOT_FOUND;
+import static io.netty.handler.codec.http.HttpResponseStatus.NOT_MODIFIED;
+import static io.netty.handler.codec.http.HttpResponseStatus.OK;
 import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
 
 /**
@@ -31,23 +62,25 @@ import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
  * Created by Dmitriy Dumanskiy.
  * Created on 10.12.15.
  */
-public class StaticFileHandler extends ChannelInboundHandlerAdapter implements DefaultExceptionHandler {
+public class StaticFileHandler extends ChannelInboundHandlerAdapter {
 
     private static final Logger log = LogManager.getLogger(StaticFileHandler.class);
 
-    public static final String HTTP_DATE_FORMAT = "EEE, dd MMM yyyy HH:mm:ss zzz";
-    public static final String HTTP_DATE_GMT_TIMEZONE = "GMT";
-    public static final int HTTP_CACHE_SECONDS = 60;
+    private static final String HTTP_DATE_FORMAT = "EEE, dd MMM yyyy HH:mm:ss zzz";
+    private static final String HTTP_DATE_GMT_TIMEZONE = "GMT";
+    private static final int HTTP_CACHE_SECONDS = 60;
 
     /**
      * Used for case when server started from IDE and static files wasn't unpacked from jar.
      */
     private final boolean isUnpacked;
     private final StaticFile[] staticPaths;
+    private final String jarPath;
 
-    public StaticFileHandler(boolean isUnpacked, StaticFile... staticPaths) {
+    public StaticFileHandler(ServerProperties props, StaticFile... staticPaths) {
         this.staticPaths = staticPaths;
-        this.isUnpacked = isUnpacked;
+        this.isUnpacked = props.isUnpacked;
+        this.jarPath = props.jarPath;
     }
 
     private static void sendError(ChannelHandlerContext ctx, HttpResponseStatus status) {
@@ -95,24 +128,20 @@ public class StaticFileHandler extends ChannelInboundHandlerAdapter implements D
      * @param fileToCache
      *            file to extract content type
      */
-    private static void setDateAndCacheHeaders(io.netty.handler.codec.http.HttpResponse response, File fileToCache, StaticFile staticFile) {
-        if (staticFile.doCaching) {
-            SimpleDateFormat dateFormatter = new SimpleDateFormat(HTTP_DATE_FORMAT, Locale.US);
-            dateFormatter.setTimeZone(TimeZone.getTimeZone(HTTP_DATE_GMT_TIMEZONE));
+    private static void setDateAndCacheHeaders(io.netty.handler.codec.http.HttpResponse response, File fileToCache) {
+        SimpleDateFormat dateFormatter = new SimpleDateFormat(HTTP_DATE_FORMAT, Locale.US);
+        dateFormatter.setTimeZone(TimeZone.getTimeZone(HTTP_DATE_GMT_TIMEZONE));
 
-            // Date header
-            Calendar time = new GregorianCalendar();
-            response.headers().set(DATE, dateFormatter.format(time.getTime()));
+        // Date header
+        Calendar time = new GregorianCalendar();
+        response.headers().set(DATE, dateFormatter.format(time.getTime()));
 
-            // Add cache headers
-            time.add(Calendar.SECOND, HTTP_CACHE_SECONDS);
-            response.headers().set(EXPIRES, dateFormatter.format(time.getTime()));
-            response.headers().set(CACHE_CONTROL, "private, max-age=" + HTTP_CACHE_SECONDS);
-            response.headers().set(
-                    LAST_MODIFIED, dateFormatter.format(new Date(fileToCache.lastModified())));
-        } else {
-            response.headers().set(CACHE_CONTROL, "no-cache, no-store, must-revalidate"); // HTTP 1.1.
-        }
+        // Add cache headers
+        time.add(Calendar.SECOND, HTTP_CACHE_SECONDS);
+        response.headers()
+                .set(EXPIRES, dateFormatter.format(time.getTime()))
+                .set(CACHE_CONTROL, "private, max-age=" + HTTP_CACHE_SECONDS)
+                .set(LAST_MODIFIED, dateFormatter.format(new Date(fileToCache.lastModified())));
     }
 
     @Override
@@ -145,7 +174,8 @@ public class StaticFileHandler extends ChannelInboundHandlerAdapter implements D
         return null;
     }
 
-    private void serveStatic(ChannelHandlerContext ctx, FullHttpRequest request, StaticFile staticFile) throws Exception {
+    private void serveStatic(ChannelHandlerContext ctx, FullHttpRequest request, StaticFile staticFile)
+            throws Exception {
         if (!request.decoderResult().isSuccess()) {
             sendError(ctx, BAD_REQUEST);
             return;
@@ -157,26 +187,30 @@ public class StaticFileHandler extends ChannelInboundHandlerAdapter implements D
 
         Path path;
         String uri = request.uri();
-        //running from jar
-        if (isUnpacked) {
-            if (staticFile instanceof StaticFileEdsWith) {
-                StaticFileEdsWith staticFileEdsWith = (StaticFileEdsWith) staticFile;
-                path = Paths.get(staticFileEdsWith.folderPathForStatic, uri);
-            } else {
-                path = ServerProperties.getFileInCurrentDir(uri);
-            }
-        } else {
-            //for local mode / running from ide
-            path = getPathForLocalRun(uri);
-        }
 
-        if (Files.isHidden(path) || Files.notExists(path)) {
+        if (isNotSecure(uri)) {
             sendError(ctx, NOT_FOUND);
             return;
         }
 
-        if (Files.isDirectory(path)) {
-            sendError(ctx, FORBIDDEN);
+        //running from jar
+        if (isUnpacked) {
+            log.trace("Is unpacked.");
+            if (staticFile instanceof StaticFileEdsWith) {
+                StaticFileEdsWith staticFileEdsWith = (StaticFileEdsWith) staticFile;
+                path = Paths.get(staticFileEdsWith.folderPathForStatic, uri);
+            } else {
+                path = Paths.get(jarPath, uri);
+            }
+        } else {
+            //for local mode / running from ide
+            path = FileUtils.getPathForLocalRun(uri);
+        }
+
+        log.trace("Getting file from path {}", path);
+
+        if (path == null || Files.notExists(path) || Files.isDirectory(path)) {
+            sendError(ctx, NOT_FOUND);
             return;
         }
 
@@ -184,7 +218,7 @@ public class StaticFileHandler extends ChannelInboundHandlerAdapter implements D
 
         // Cache Validation
         String ifModifiedSince = request.headers().get(IF_MODIFIED_SINCE);
-        if (ifModifiedSince != null && !ifModifiedSince.isEmpty()) {
+        if (ifModifiedSince != null && !ifModifiedSince.isEmpty() && !(staticFile instanceof NoCacheStaticFile)) {
             SimpleDateFormat dateFormatter = new SimpleDateFormat(HTTP_DATE_FORMAT, Locale.US);
             Date ifModifiedSinceDate = dateFormatter.parse(ifModifiedSince);
 
@@ -207,14 +241,14 @@ public class StaticFileHandler extends ChannelInboundHandlerAdapter implements D
         }
         long fileLength = raf.length();
 
-        io.netty.handler.codec.http.HttpResponse response = new DefaultHttpResponse(HTTP_1_1, OK);
-        HttpUtil.setContentLength(response, fileLength);
-
-        //setting content type
-        response.headers().set(CONTENT_TYPE, ContentTypeUtil.getContentType(file.getName()));
+        HttpResponse response = new DefaultHttpResponse(HTTP_1_1, OK);
+        response.headers()
+                .set(CONTENT_LENGTH, fileLength)
+                .set(CONTENT_TYPE, ContentTypeUtil.getContentType(file.getName()))
+                .set(ACCESS_CONTROL_ALLOW_ORIGIN, "*");
 
         //todo setup caching for files.
-        setDateAndCacheHeaders(response, file, staticFile);
+        setDateAndCacheHeaders(response, file);
         if (HttpUtil.isKeepAlive(request)) {
             response.headers().set(CONNECTION, HttpHeaderValues.KEEP_ALIVE);
         }
@@ -231,7 +265,7 @@ public class StaticFileHandler extends ChannelInboundHandlerAdapter implements D
             lastContentFuture = ctx.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT);
         } else {
             sendFileFuture =
-                    ctx.writeAndFlush(new HttpChunkedInput(new ChunkedFile(raf, 0, fileLength, 8192)),
+                    ctx.writeAndFlush(new HttpChunkedInput(new ChunkedFile(raf, 128 * 1024)),
                             ctx.newProgressivePromise());
             // HttpChunkedInput will write the end marker (LastHttpContent) for us.
             lastContentFuture = sendFileFuture;
@@ -244,37 +278,22 @@ public class StaticFileHandler extends ChannelInboundHandlerAdapter implements D
         }
     }
 
-    private Path getPathForLocalRun(String uri) {
-        Path path = Paths.get("./server/http-admin/target/classes", uri);
+    private static final Pattern INSECURE_URI = Pattern.compile(".*[<>&\"].*");
 
-        if (Files.exists(path)) {
-            return path;
+    private static boolean isNotSecure(String uri) {
+        if (uri.isEmpty() || uri.charAt(0) != '/') {
+            return true;
         }
 
-        //path for integration tests
-        path = Paths.get("../server/http-admin/target/classes" , uri);
+        return uri.contains(File.separator + '.')
+                || uri.contains('.' + File.separator)
+                || uri.charAt(0) == '.' || uri.charAt(uri.length() - 1) == '.'
+                || INSECURE_URI.matcher(uri).matches();
 
-        if (Files.exists(path)) {
-            return path;
-        }
-
-        //path for integration tests
-        path = Paths.get("../server/http-core/target/classes" , uri);
-
-        if (Files.exists(path)) {
-            return path;
-        }
-
-        if (uri.endsWith(".csv.gz")) {
-            return Paths.get("/tmp/blynk", uri);
-        }
-
-        //last hope
-        return Paths.get("./server/http-api/target/classes", uri);
     }
 
     @Override
-    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
         if (cause.getMessage() != null && cause.getMessage().contains("unknown_ca")) {
             log.warn("Self-generated certificate.");
         } else {

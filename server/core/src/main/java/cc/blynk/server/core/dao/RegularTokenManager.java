@@ -7,8 +7,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 /**
  * The Blynk Project.
@@ -19,51 +19,52 @@ class RegularTokenManager {
 
     private static final Logger log = LogManager.getLogger(RegularTokenManager.class);
 
-    private final ConcurrentMap<String, TokenValue> cache;
+    final ConcurrentHashMap<String, TokenValue> cache;
 
-    public RegularTokenManager(Iterable<User> users) {
-        this.cache = new ConcurrentHashMap<String, TokenValue>() {{
-            for (User user : users) {
-                if (user.profile != null) {
-                    for (DashBoard dashBoard : user.profile.dashBoards) {
-                        for (Device device : dashBoard.devices) {
-                            if (device.token != null) {
-                                put(device.token, new TokenValue(user, dashBoard.id, device.id));
-                            }
+    RegularTokenManager(Collection<User> users) {
+        ///in average user has 2 devices
+        this.cache = new ConcurrentHashMap<>(users.size() == 0 ? 16 : users.size() * 2);
+        for (User user : users) {
+            if (user.profile != null) {
+                for (DashBoard dashBoard : user.profile.dashBoards) {
+                    for (Device device : dashBoard.devices) {
+                        if (device.token != null) {
+                            cache.put(device.token, new TokenValue(user, dashBoard, device));
                         }
                     }
                 }
             }
-        }};
+        }
     }
 
-    String assignToken(User user, int dashId, int deviceId, String newToken) {
+    String assignToken(User user, DashBoard dash, Device device, String newToken, boolean isTemporary) {
         // Clean old token from cache if exists.
-        DashBoard dash = user.profile.getDashByIdOrThrow(dashId);
-        Device device = dash.getDeviceById(deviceId);
-
-        String oldToken = deleteDeviceToken(device);
+        String oldToken = deleteDeviceToken(device.token);
 
         //assign new token
         device.token = newToken;
-        cache.put(newToken, new TokenValue(user, dashId, deviceId));
+        TokenValue tokenValue = isTemporary
+                ? new TemporaryTokenValue(user, dash, device)
+                : new TokenValue(user, dash, device);
+        cache.put(newToken, tokenValue);
 
         user.lastModifiedTs = System.currentTimeMillis();
 
-        log.debug("Generated token for user {}, dashId {}, deviceId {} is {}.", user.email, dashId, deviceId, newToken);
+        log.debug("Generated token for user {}, dashId {}, deviceId {} is {}.",
+                user.email, dash.id, device.id, newToken);
 
         return oldToken;
     }
 
-    public String deleteDeviceToken(Device device) {
-        if (device != null && device.token != null) {
-            cache.remove(device.token);
-            return device.token;
+    String deleteDeviceToken(String deviceToken) {
+        if (deviceToken != null) {
+            cache.remove(deviceToken);
+            return deviceToken;
         }
         return null;
     }
 
-    public TokenValue getUserByToken(String token) {
+    TokenValue getUserByToken(String token) {
         return cache.get(token);
     }
 
@@ -75,7 +76,7 @@ class RegularTokenManager {
                 removedTokens.add(device.token);
             }
         }
-        return removedTokens.toArray(new String[removedTokens.size()]);
+        return removedTokens.toArray(new String[0]);
     }
 
 }

@@ -1,25 +1,72 @@
 package cc.blynk.server.core.model.widgets;
 
-import cc.blynk.server.core.model.Pin;
+import cc.blynk.server.core.model.DataStream;
+import cc.blynk.server.core.model.enums.PinMode;
 import cc.blynk.server.core.model.enums.PinType;
-import cc.blynk.server.core.model.widgets.controls.*;
+import cc.blynk.server.core.model.enums.WidgetProperty;
+import cc.blynk.server.core.model.serialization.JsonParser;
+import cc.blynk.server.core.model.storage.value.PinStorageValue;
+import cc.blynk.server.core.model.storage.value.SinglePinStorageValue;
+import cc.blynk.server.core.model.widgets.controls.Button;
+import cc.blynk.server.core.model.widgets.controls.LinkButton;
+import cc.blynk.server.core.model.widgets.controls.NumberInput;
+import cc.blynk.server.core.model.widgets.controls.QR;
+import cc.blynk.server.core.model.widgets.controls.RGB;
+import cc.blynk.server.core.model.widgets.controls.SegmentedControl;
+import cc.blynk.server.core.model.widgets.controls.Slider;
+import cc.blynk.server.core.model.widgets.controls.Step;
+import cc.blynk.server.core.model.widgets.controls.StyledButton;
+import cc.blynk.server.core.model.widgets.controls.Terminal;
+import cc.blynk.server.core.model.widgets.controls.TextInput;
+import cc.blynk.server.core.model.widgets.controls.Timer;
+import cc.blynk.server.core.model.widgets.controls.TwoAxisJoystick;
+import cc.blynk.server.core.model.widgets.controls.VerticalSlider;
+import cc.blynk.server.core.model.widgets.controls.VerticalStep;
 import cc.blynk.server.core.model.widgets.notifications.Mail;
 import cc.blynk.server.core.model.widgets.notifications.Notification;
 import cc.blynk.server.core.model.widgets.notifications.SMS;
 import cc.blynk.server.core.model.widgets.notifications.Twitter;
-import cc.blynk.server.core.model.widgets.others.*;
+import cc.blynk.server.core.model.widgets.others.Bluetooth;
+import cc.blynk.server.core.model.widgets.others.BluetoothSerial;
+import cc.blynk.server.core.model.widgets.others.Bridge;
+import cc.blynk.server.core.model.widgets.others.Player;
+import cc.blynk.server.core.model.widgets.others.Video;
 import cc.blynk.server.core.model.widgets.others.eventor.Eventor;
 import cc.blynk.server.core.model.widgets.others.rtc.RTC;
 import cc.blynk.server.core.model.widgets.others.webhook.WebHook;
-import cc.blynk.server.core.model.widgets.outputs.*;
-import cc.blynk.server.core.model.widgets.outputs.graph.EnhancedHistoryGraph;
-import cc.blynk.server.core.model.widgets.sensors.*;
-import cc.blynk.server.core.model.widgets.ui.*;
+import cc.blynk.server.core.model.widgets.outputs.Gauge;
+import cc.blynk.server.core.model.widgets.outputs.LCD;
+import cc.blynk.server.core.model.widgets.outputs.LED;
+import cc.blynk.server.core.model.widgets.outputs.LabeledValueDisplay;
+import cc.blynk.server.core.model.widgets.outputs.LevelDisplay;
+import cc.blynk.server.core.model.widgets.outputs.Map;
+import cc.blynk.server.core.model.widgets.outputs.ValueDisplay;
+import cc.blynk.server.core.model.widgets.outputs.VerticalLevelDisplay;
+import cc.blynk.server.core.model.widgets.outputs.graph.Superchart;
+import cc.blynk.server.core.model.widgets.sensors.Accelerometer;
+import cc.blynk.server.core.model.widgets.sensors.Barometer;
+import cc.blynk.server.core.model.widgets.sensors.GPSStreaming;
+import cc.blynk.server.core.model.widgets.sensors.GPSTrigger;
+import cc.blynk.server.core.model.widgets.sensors.Gravity;
+import cc.blynk.server.core.model.widgets.sensors.Humidity;
+import cc.blynk.server.core.model.widgets.sensors.Light;
+import cc.blynk.server.core.model.widgets.sensors.Proximity;
+import cc.blynk.server.core.model.widgets.sensors.Temperature;
+import cc.blynk.server.core.model.widgets.ui.DeviceSelector;
+import cc.blynk.server.core.model.widgets.ui.Menu;
+import cc.blynk.server.core.model.widgets.ui.Tabs;
+import cc.blynk.server.core.model.widgets.ui.TimeInput;
+import cc.blynk.server.core.model.widgets.ui.image.Image;
+import cc.blynk.server.core.model.widgets.ui.reporting.ReportingWidget;
 import cc.blynk.server.core.model.widgets.ui.table.Table;
+import cc.blynk.server.core.model.widgets.ui.tiles.DeviceTiles;
 import cc.blynk.utils.ByteUtils;
-import cc.blynk.utils.StringUtils;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
+
+import java.io.IOException;
+
+import static cc.blynk.utils.StringUtils.BODY_SEPARATOR;
 
 /**
  * User: ddumanskiy
@@ -28,24 +75,27 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
  */
 @JsonTypeInfo(
         use = JsonTypeInfo.Id.NAME,
-        include = JsonTypeInfo.As.PROPERTY,
-        property = "type")
+        property = "type",
+        defaultImpl = Button.class)
 @JsonSubTypes({
 
         //controls
         @JsonSubTypes.Type(value = Button.class, name = "BUTTON"),
-        @JsonSubTypes.Type(value = FieldInput.class, name = "FIELD_INPUT"),
+        @JsonSubTypes.Type(value = StyledButton.class, name = "STYLED_BUTTON"),
+        @JsonSubTypes.Type(value = LinkButton.class, name = "LINK_BUTTON"),
+        @JsonSubTypes.Type(value = TextInput.class, name = "TEXT_INPUT"),
+        @JsonSubTypes.Type(value = NumberInput.class, name = "NUMBER_INPUT"),
         @JsonSubTypes.Type(value = Slider.class, name = "SLIDER"),
         @JsonSubTypes.Type(value = VerticalSlider.class, name = "VERTICAL_SLIDER"),
         @JsonSubTypes.Type(value = RGB.class, name = "RGB"),
         @JsonSubTypes.Type(value = Timer.class, name = "TIMER"),
-        @JsonSubTypes.Type(value = OneAxisJoystick.class, name = "ONE_AXIS_JOYSTICK"),
         @JsonSubTypes.Type(value = TwoAxisJoystick.class, name = "TWO_AXIS_JOYSTICK"),
         @JsonSubTypes.Type(value = Terminal.class, name = "TERMINAL"),
         @JsonSubTypes.Type(value = Step.class, name = "STEP"),
         @JsonSubTypes.Type(value = VerticalStep.class, name = "VERTICAL_STEP"),
         @JsonSubTypes.Type(value = QR.class, name = "QR"),
         @JsonSubTypes.Type(value = TimeInput.class, name = "TIME_INPUT"),
+        @JsonSubTypes.Type(value = SegmentedControl.class, name = "SEGMENTED_CONTROL"),
 
         //outputs
         @JsonSubTypes.Type(value = LED.class, name = "LED"),
@@ -53,12 +103,10 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
         @JsonSubTypes.Type(value = LabeledValueDisplay.class, name = "LABELED_VALUE_DISPLAY"),
         @JsonSubTypes.Type(value = Gauge.class, name = "GAUGE"),
         @JsonSubTypes.Type(value = LCD.class, name = "LCD"),
-        @JsonSubTypes.Type(value = Graph.class, name = "GRAPH"),
         @JsonSubTypes.Type(value = LevelDisplay.class, name = "LEVEL_DISPLAY"),
         @JsonSubTypes.Type(value = VerticalLevelDisplay.class, name = "VERTICAL_LEVEL_DISPLAY"),
         @JsonSubTypes.Type(value = Video.class, name = "VIDEO"),
-        @JsonSubTypes.Type(value = HistoryGraph.class, name = "LOGGER"),
-        @JsonSubTypes.Type(value = EnhancedHistoryGraph.class, name = "ENHANCED_GRAPH"),
+        @JsonSubTypes.Type(value = Superchart.class, name = "ENHANCED_GRAPH"),
 
         //sensors
         @JsonSubTypes.Type(value = GPSTrigger.class, name = "GPS_TRIGGER"),
@@ -83,6 +131,7 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
         @JsonSubTypes.Type(value = Player.class, name = "PLAYER"),
         @JsonSubTypes.Type(value = Table.class, name = "TABLE"),
         @JsonSubTypes.Type(value = Image.class, name = "IMAGE"),
+        @JsonSubTypes.Type(value = ReportingWidget.class, name = "REPORT"),
 
         //others
         @JsonSubTypes.Type(value = RTC.class, name = "RTC"),
@@ -92,11 +141,12 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
         @JsonSubTypes.Type(value = Eventor.class, name = "EVENTOR"),
         @JsonSubTypes.Type(value = Map.class, name = "MAP"),
         @JsonSubTypes.Type(value = DeviceSelector.class, name = "DEVICE_SELECTOR"),
+        @JsonSubTypes.Type(value = DeviceTiles.class, name = "DEVICE_TILES"),
 
         @JsonSubTypes.Type(value = WebHook.class, name = "WEBHOOK")
 
 })
-public abstract class Widget {
+public abstract class Widget implements CopyObject<Widget> {
 
     public long id;
 
@@ -114,67 +164,82 @@ public abstract class Widget {
 
     public volatile String label;
 
-    public volatile boolean isEnabled = true;
-
     public boolean isDefaultColor;
 
-    protected static void append(StringBuilder sb, byte pin, PinType pinType, String pinMode) {
-        if (pin == Pin.NO_PIN || pinMode == null || pinType == PinType.VIRTUAL) {
-            return;
-        }
-        sb.append(StringUtils.BODY_SEPARATOR)
-                .append(pin)
-                .append(StringUtils.BODY_SEPARATOR)
-                .append(pinMode);
-    }
-
-    public abstract boolean updateIfSame(int deviceId, byte pin, PinType type, String value);
-
-    public abstract void updateIfSame(Widget widget);
-
-    public abstract boolean isSame(int deviceId, byte pin, PinType type);
-
-    public abstract String getJsonValue();
-
-    public abstract String getModeType();
-
-    public abstract String getValue(byte pin, PinType type);
+    public abstract PinMode getModeType();
 
     public abstract int getPrice();
 
-    public abstract void append(StringBuilder sb, int deviceId);
+    public abstract void updateValue(Widget oldWidget);
 
-    public void setProperty(String property, String propertyValue) {
-        switch (property) {
-            case "label" :
-                this.label = propertyValue;
-                break;
-            case "color" :
-                this.color = ByteUtils.parseColor(propertyValue);
-                this.isDefaultColor = false;
-                break;
-            case "isEnabled" :
-                this.isEnabled = Boolean.parseBoolean(propertyValue);
-                break;
-            default:
-                throw new RuntimeException("Error setting widget property.");
+    public abstract void erase();
+
+    /**
+     * WARNING: this method has one exclusion for DeviceTiles, as
+     * Device for Tiles not assigned directly, but assigned via provisioning
+     */
+    public abstract boolean isAssignedToDevice(int deviceId);
+
+    protected void append(StringBuilder sb, short pin, PinType pinType) {
+        if (pin != DataStream.NO_PIN && pinType != PinType.VIRTUAL) {
+            PinMode pinMode = getModeType();
+            if (pinMode != null) {
+                sb.append(BODY_SEPARATOR)
+                        .append(pin)
+                        .append(BODY_SEPARATOR)
+                        .append(pinMode);
+            }
         }
     }
 
-    public static boolean isNotValidProperty(String property) {
+    public boolean updateIfSame(int deviceId, short pin, PinType type, String value) {
+        return false;
+    }
+
+    public boolean isSame(int deviceId, short pin, PinType type) {
+        return false;
+    }
+
+    public String getJsonValue() {
+        return null;
+    }
+
+    /**
+     * This method should be overridden by every widget that supports direct pins (analog, digital) control
+     */
+    public void append(StringBuilder sb, int deviceId) {
+    }
+
+    //todo this is ugly and not effective. refactor
+    @Override
+    public Widget copy() {
+        String copyWidgetString = JsonParser.toJson(this);
+        try {
+            return JsonParser.parseWidget(copyWidgetString);
+        } catch (IOException ioe) {
+            throw new RuntimeException(ioe);
+        }
+    }
+
+    public PinStorageValue getPinStorageValue() {
+        return new SinglePinStorageValue();
+    }
+
+    public boolean isMultiValueWidget() {
+        return false;
+    }
+
+    public boolean setProperty(WidgetProperty property, String propertyValue) {
         switch (property) {
-            case "label":
-            case "color":
-            case "isEnabled":
-            case "onLabel":
-            case "offLabel":
-            case "labels":
-            case "min":
-            case "max":
-            case "isOnPlay":
-                return false;
-            default:
+            case LABEL :
+                this.label = propertyValue;
                 return true;
+            case COLOR :
+                this.color = ByteUtils.parseColor(propertyValue);
+                this.isDefaultColor = false;
+                return true;
+            default:
+                return false;
         }
     }
 }

@@ -1,25 +1,41 @@
 package cc.blynk.server.core.processors;
 
 import cc.blynk.server.core.model.DashBoard;
-import cc.blynk.server.core.model.Pin;
+import cc.blynk.server.core.model.DataStream;
 import cc.blynk.server.core.model.auth.Session;
 import cc.blynk.server.core.model.enums.PinType;
 import cc.blynk.server.core.model.widgets.others.webhook.Header;
-import cc.blynk.server.core.model.widgets.others.webhook.SupportedWebhookMethod;
 import cc.blynk.server.core.model.widgets.others.webhook.WebHook;
 import cc.blynk.server.core.protocol.enums.Command;
-import cc.blynk.server.core.protocol.exceptions.QuotaLimitException;
 import cc.blynk.server.core.stats.GlobalStats;
 import cc.blynk.utils.StringUtils;
 import io.netty.util.CharsetUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.asynchttpclient.*;
+import org.asynchttpclient.AsyncCompletionHandler;
+import org.asynchttpclient.AsyncHttpClient;
+import org.asynchttpclient.BoundRequestBuilder;
+import org.asynchttpclient.DefaultAsyncHttpClient;
+import org.asynchttpclient.HttpResponseBodyPart;
+import org.asynchttpclient.Response;
 
 import java.time.Instant;
+import java.util.regex.Matcher;
 
 import static cc.blynk.server.core.protocol.enums.Command.WEB_HOOKS;
-import static cc.blynk.utils.StringUtils.*;
+import static cc.blynk.utils.StringUtils.DATETIME_PATTERN;
+import static cc.blynk.utils.StringUtils.GENERIC_PLACEHOLDER;
+import static cc.blynk.utils.StringUtils.PIN_PATTERN;
+import static cc.blynk.utils.StringUtils.PIN_PATTERN_0;
+import static cc.blynk.utils.StringUtils.PIN_PATTERN_1;
+import static cc.blynk.utils.StringUtils.PIN_PATTERN_2;
+import static cc.blynk.utils.StringUtils.PIN_PATTERN_3;
+import static cc.blynk.utils.StringUtils.PIN_PATTERN_4;
+import static cc.blynk.utils.StringUtils.PIN_PATTERN_5;
+import static cc.blynk.utils.StringUtils.PIN_PATTERN_6;
+import static cc.blynk.utils.StringUtils.PIN_PATTERN_7;
+import static cc.blynk.utils.StringUtils.PIN_PATTERN_8;
+import static cc.blynk.utils.StringUtils.PIN_PATTERN_9;
 
 /**
  * Handles all webhooks logic.
@@ -31,12 +47,13 @@ import static cc.blynk.utils.StringUtils.*;
 public class WebhookProcessor extends NotificationBase {
 
     private static final Logger log = LogManager.getLogger(WebhookProcessor.class);
+    private static final String CONTENT_TYPE = "Content-Type";
 
     private final AsyncHttpClient httpclient;
     private final GlobalStats globalStats;
     private final int responseSizeLimit;
     private final String email;
-    private final int WEBHOOK_FAILURE_LIMIT;
+    private final int webhookFailureLimit;
 
     public WebhookProcessor(DefaultAsyncHttpClient httpclient,
                             long quotaFrequencyLimit,
@@ -48,41 +65,58 @@ public class WebhookProcessor extends NotificationBase {
         this.globalStats = stats;
         this.responseSizeLimit = responseSizeLimit;
         this.email = email;
-        this.WEBHOOK_FAILURE_LIMIT = failureLimit;
+        this.webhookFailureLimit = failureLimit;
     }
 
-    public void process(Session session, DashBoard dash, int deviceId, byte pin, PinType pinType, String triggerValue, long now) {
-        WebHook widget = dash.findWebhookByPin(deviceId, pin, pinType);
-        if (widget == null) {
+    public void process(Session session, DashBoard dash, int deviceId, short pin,
+                        PinType pinType, String triggerValue, long now) {
+        WebHook webhook = dash.findWebhookByPin(deviceId, pin, pinType);
+        if (webhook == null) {
             return;
         }
 
-        try {
-            checkIfNotificationQuotaLimitIsNotReached(now);
-        } catch (QuotaLimitException qle) {
-            log.debug("Webhook quota limit reached. Ignoring hook.");
-            return;
+        checkIfNotificationQuotaLimitIsNotReached(now);
+
+        if (webhook.isNotFailed(webhookFailureLimit) && webhook.url != null) {
+            process(session, dash.id, deviceId, webhook, triggerValue);
         }
-        process(session, dash.id, deviceId, widget, triggerValue);
     }
 
     private void process(Session session, int dashId, int deviceId,  WebHook webHook, String triggerValue) {
-        if (!webHook.isValid(WEBHOOK_FAILURE_LIMIT)) {
+        String newUrl = format(webHook.url, triggerValue);
+
+        if (!WebHook.isValidUrl(newUrl)) {
             return;
         }
 
-        String newUrl = format(webHook.url, triggerValue, false);
+        BoundRequestBuilder builder;
+        try {
+            builder = httpclient.prepare(webHook.method.name(), newUrl);
+        } catch (NumberFormatException nfe) {
+            //this is known possible error due to malformed input
+            //https://github.com/blynkkk/blynk-server/issues/1001
+            log.debug("Error during webhook initialization.", nfe);
+            return;
+        } catch (IllegalArgumentException iae) {
+            String error = iae.getMessage();
+            if (error != null && error.contains("missing scheme")) {
+                //this is known possible error due to malformed input
+                log.debug("Error during webhook initialization.", iae);
+                return;
+            } else {
+                throw iae;
+            }
+        }
 
-        BoundRequestBuilder builder = buildRequestMethod(webHook.method, newUrl);
         if (webHook.headers != null) {
             for (Header header : webHook.headers) {
                 if (header.isValid()) {
                     builder.setHeader(header.name, header.value);
                     if (webHook.body != null && !webHook.body.isEmpty()) {
-                        if (header.name.equals("Content-Type")) {
-                            String newBody = format(webHook.body, triggerValue, true);
+                        if (CONTENT_TYPE.equals(header.name)) {
+                            String newBody = format(webHook.body, triggerValue);
                             log.trace("Webhook formatted body : {}", newBody);
-                            buildRequestBody(builder, header.value, newBody);
+                            builder.setBody(newBody);
                         }
                     }
                 }
@@ -106,18 +140,19 @@ public class WebhookProcessor extends NotificationBase {
             }
 
             @Override
-            public Response onCompleted(Response response) throws Exception {
-                if (response.getStatusCode() == 200 || response.getStatusCode() == 302) {
+            public Response onCompleted(Response response) {
+                if (isValidResponseCode(response.getStatusCode())) {
                     webHook.failureCounter = 0;
                     if (response.hasResponseBody()) {
-                        //todo could be optimized
-                        String body = Pin.makeHardwareBody(webHook.pinType, webHook.pin, response.getResponseBody(CharsetUtil.UTF_8));
+                        //todo could be optimized with response.getResponseBodyAsByteBuffer()
+                        String body = DataStream.makeHardwareBody(webHook.pinType, webHook.pin,
+                                response.getResponseBody(CharsetUtil.UTF_8));
                         log.trace("Sending webhook to hardware. {}", body);
                         session.sendMessageToHardware(dashId, Command.HARDWARE, 888, body, deviceId);
                     }
                 } else {
                     webHook.failureCounter++;
-                    log.error("Error sending webhook for {}. Code {}.", email, response.getStatusCode());
+                    log.debug("Error sending webhook for {}. Code {}.", email, response.getStatusCode());
                     if (log.isDebugEnabled()) {
                         log.debug("Reason {}", response.getResponseBody());
                     }
@@ -129,7 +164,7 @@ public class WebhookProcessor extends NotificationBase {
             @Override
             public void onThrowable(Throwable t) {
                 webHook.failureCounter++;
-                log.error("Error sending webhook for {}.", email);
+                log.debug("Error sending webhook for {}.", email);
                 if (log.isDebugEnabled()) {
                     log.debug("Reason {}", t.getMessage());
                 }
@@ -138,14 +173,32 @@ public class WebhookProcessor extends NotificationBase {
         globalStats.mark(WEB_HOOKS);
     }
 
-    private String format(String data, String triggerValue, boolean doBlynkCheck) {
-        //this is an ugly hack to make it work with Blynk HTTP API.
-        if (doBlynkCheck || !data.toLowerCase().contains("/pin/v")) {
-            data = PIN_PATTERN.matcher(data).replaceFirst(triggerValue);
+    private static boolean isValidResponseCode(int responseCode) {
+        switch (responseCode) {
+            case 200:
+            case 204:
+            case 302:
+                return true;
+            default:
+                return false;
         }
-        data = data.replace("%s", triggerValue);
-        String[] splitted = triggerValue.split(StringUtils.BODY_SEPARATOR_STRING);
+    }
+
+    private static String format(String data, String triggerValue) {
+        //this is an ugly hack to make it work with Blynk HTTP API.
+        String quotedValue = Matcher.quoteReplacement(triggerValue);
+        data = PIN_PATTERN.matcher(data).replaceFirst(quotedValue);
+
+        String[] splitted = quotedValue.split(StringUtils.BODY_SEPARATOR_STRING);
         switch (splitted.length) {
+            case 10 :
+                data = PIN_PATTERN_9.matcher(data).replaceFirst(splitted[9]);
+            case 9 :
+                data = PIN_PATTERN_8.matcher(data).replaceFirst(splitted[8]);
+            case 8 :
+                data = PIN_PATTERN_7.matcher(data).replaceFirst(splitted[7]);
+            case 7 :
+                data = PIN_PATTERN_6.matcher(data).replaceFirst(splitted[6]);
             case 6 :
                 data = PIN_PATTERN_5.matcher(data).replaceFirst(splitted[5]);
             case 5 :
@@ -158,37 +211,10 @@ public class WebhookProcessor extends NotificationBase {
                 data = PIN_PATTERN_1.matcher(data).replaceFirst(splitted[1]);
             case 1 :
                 data = PIN_PATTERN_0.matcher(data).replaceFirst(splitted[0]);
+            default :
+                data = GENERIC_PLACEHOLDER.matcher(data).replaceFirst(quotedValue);
+                data = DATETIME_PATTERN.matcher(data).replaceFirst(Instant.now().toString());
         }
-
-        data = DATETIME_PATTERN.matcher(data).replaceFirst(Instant.now().toString());
-
         return data;
     }
-
-    private void buildRequestBody(BoundRequestBuilder builder, String header, String body) {
-        switch (header) {
-            case "application/json" :
-            case "text/plain" :
-                builder.setBody(body);
-                break;
-            default :
-                throw new IllegalArgumentException("Unsupported content-type for webhook.");
-        }
-    }
-
-    private BoundRequestBuilder buildRequestMethod(SupportedWebhookMethod method, String url) {
-        switch (method) {
-            case GET :
-                return httpclient.prepareGet(url);
-            case POST :
-                return httpclient.preparePost(url);
-            case PUT :
-                return httpclient.preparePut(url);
-            case DELETE :
-                return httpclient.prepareDelete(url);
-            default :
-                throw new IllegalArgumentException("Unsupported method type for webhook.");
-        }
-    }
-
 }

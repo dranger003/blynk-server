@@ -1,17 +1,15 @@
 package cc.blynk.server.core.model.widgets.controls;
 
-import cc.blynk.server.core.model.Pin;
+import cc.blynk.server.core.model.DataStream;
+import cc.blynk.server.core.model.enums.PinMode;
 import cc.blynk.server.core.model.widgets.HardwareSyncWidget;
 import cc.blynk.server.core.model.widgets.MultiPinWidget;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 
-import java.util.StringJoiner;
-
 import static cc.blynk.server.core.protocol.enums.Command.APP_SYNC;
 import static cc.blynk.server.core.protocol.enums.Command.HARDWARE;
-import static cc.blynk.utils.BlynkByteBufUtil.makeUTF8StringMessage;
-import static cc.blynk.utils.StringUtils.BODY_SEPARATOR_STRING;
+import static cc.blynk.server.internal.CommonByteBufUtil.makeUTF8StringMessage;
 import static cc.blynk.utils.StringUtils.prependDashIdAndDeviceId;
 
 /**
@@ -27,62 +25,49 @@ public class TwoAxisJoystick extends MultiPinWidget implements HardwareSyncWidge
 
     public boolean portraitLocked;
 
+    public int frequency;
+
     @Override
     public void sendHardSync(ChannelHandlerContext ctx, int msgId, int deviceId) {
-        if (pins == null || this.deviceId != deviceId) {
+        if (dataStreams == null || this.deviceId != deviceId) {
             return;
         }
         if (split) {
-            for (Pin pin : pins) {
-                if (pin.notEmpty()) {
-                    ctx.write(makeUTF8StringMessage(HARDWARE, msgId, pin.makeHardwareBody()), ctx.voidPromise());
+            for (DataStream dataStream : dataStreams) {
+                if (dataStream.notEmptyAndIsValid()) {
+                    ctx.write(makeUTF8StringMessage(HARDWARE, msgId,
+                            dataStream.makeHardwareBody()), ctx.voidPromise());
                 }
             }
         } else {
-            if (pins[0].notEmpty()) {
-                ctx.write(makeUTF8StringMessage(HARDWARE, msgId, pins[0].makeHardwareBody()), ctx.voidPromise());
+            if (dataStreams[0].notEmptyAndIsValid()) {
+                ctx.write(makeUTF8StringMessage(HARDWARE, msgId,
+                        dataStreams[0].makeHardwareBody()), ctx.voidPromise());
             }
         }
     }
 
     @Override
-    public void sendAppSync(Channel appChannel, int dashId, int targetId) {
-        if (pins == null) {
+    public void sendAppSync(Channel appChannel, int dashId, int targetId, boolean useNewSyncFormat) {
+        if (dataStreams == null) {
             return;
         }
         if (targetId == ANY_TARGET || this.deviceId == targetId) {
             if (split) {
-                for (Pin pin : pins) {
-                    if (pin.notEmpty()) {
-                        String body = prependDashIdAndDeviceId(dashId, deviceId, pin.makeHardwareBody());
-                        appChannel.write(makeUTF8StringMessage(APP_SYNC, SYNC_DEFAULT_MESSAGE_ID, body), appChannel.voidPromise());
+                for (DataStream dataStream : dataStreams) {
+                    if (dataStream.notEmptyAndIsValid()) {
+                        String body = prependDashIdAndDeviceId(dashId, deviceId, dataStream.makeHardwareBody());
+                        appChannel.write(makeUTF8StringMessage(APP_SYNC, SYNC_DEFAULT_MESSAGE_ID, body),
+                                appChannel.voidPromise());
                     }
                 }
             } else {
-                if (pins[0].notEmpty()) {
-                    String body = prependDashIdAndDeviceId(dashId, deviceId, pins[0].makeHardwareBody());
-                    appChannel.write(makeUTF8StringMessage(APP_SYNC, SYNC_DEFAULT_MESSAGE_ID, body), appChannel.voidPromise());
+                if (dataStreams[0].notEmptyAndIsValid()) {
+                    String body = prependDashIdAndDeviceId(dashId, deviceId, dataStreams[0].makeHardwareBody());
+                    appChannel.write(makeUTF8StringMessage(APP_SYNC, SYNC_DEFAULT_MESSAGE_ID, body),
+                            appChannel.voidPromise());
                 }
             }
-        }
-    }
-
-    @Override
-    public String getJsonValue() {
-        if (pins == null) {
-            return "[]";
-        }
-
-        if (isSplitMode()) {
-            return super.getJsonValue();
-        } else {
-            StringJoiner sj = new StringJoiner(",", "[", "]");
-            if (pins[0].notEmpty()) {
-                for (String pinValue : pins[0].value.split(BODY_SEPARATOR_STRING)) {
-                    sj.add("\"" + pinValue + "\"");
-                }
-            }
-            return sj.toString();
         }
     }
 
@@ -91,8 +76,8 @@ public class TwoAxisJoystick extends MultiPinWidget implements HardwareSyncWidge
     }
 
     @Override
-    public String getModeType() {
-        return "out";
+    public PinMode getModeType() {
+        return PinMode.out;
     }
 
 

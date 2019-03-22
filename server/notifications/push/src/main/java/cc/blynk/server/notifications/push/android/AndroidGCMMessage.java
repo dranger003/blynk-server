@@ -15,18 +15,18 @@ import com.fasterxml.jackson.databind.ObjectWriter;
  */
 public class AndroidGCMMessage implements GCMMessage {
 
-    private static final ObjectWriter writer = new ObjectMapper()
+    private static final ObjectWriter WRITER = new ObjectMapper()
             .setVisibility(PropertyAccessor.ALL, JsonAutoDetect.Visibility.NONE)
             .setVisibility(PropertyAccessor.FIELD, JsonAutoDetect.Visibility.ANY)
             .writerFor(AndroidGCMMessage.class);
     private final String to;
     private final Priority priority;
-    private final GCMData data;
+    private final AndroidBody data;
 
     public AndroidGCMMessage(String to, Priority priority, String message, int dashId) {
         this.to = to;
         this.priority = priority;
-        this.data = new GCMData(message, dashId);
+        this.data = new AndroidBody(message, dashId);
     }
 
     @Override
@@ -36,7 +36,7 @@ public class AndroidGCMMessage implements GCMMessage {
 
     @Override
     public String toJson() throws JsonProcessingException {
-        return writer.writeValueAsString(this);
+        return WRITER.writeValueAsString(this);
     }
 
 }

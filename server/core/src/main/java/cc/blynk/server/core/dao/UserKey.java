@@ -1,7 +1,9 @@
 package cc.blynk.server.core.dao;
 
-import cc.blynk.server.core.model.AppName;
 import cc.blynk.server.core.model.auth.User;
+import cc.blynk.utils.AppNameUtil;
+
+import java.util.Objects;
 
 /**
  * User key for session. Holds user email and app user belongs to.
@@ -22,21 +24,23 @@ public final class UserKey {
 
     public UserKey(String email, String appName) {
         this.email = email;
-        if (appName == null) {
-            this.appName = AppName.BLYNK;
-        } else {
-            this.appName = appName;
-        }
+        this.appName = Objects.requireNonNullElse(appName, AppNameUtil.BLYNK);
     }
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (!(o instanceof UserKey)) return false;
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof UserKey)) {
+            return false;
+        }
 
         UserKey userKey = (UserKey) o;
 
-        if (email != null ? !email.equals(userKey.email) : userKey.email != null) return false;
+        if (email != null ? !email.equals(userKey.email) : userKey.email != null) {
+            return false;
+        }
         return appName != null ? appName.equals(userKey.appName) : userKey.appName == null;
     }
 
@@ -49,9 +53,9 @@ public final class UserKey {
 
     @Override
     public String toString() {
-        return "UserKey{" +
-                "email='" + email + '\'' +
-                ", appName='" + appName + '\'' +
-                '}';
+        return "UserKey{"
+                + "email='" + email + '\''
+                + ", appName='" + appName + '\''
+                + '}';
     }
 }

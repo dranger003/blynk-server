@@ -15,7 +15,10 @@ import java.nio.file.Paths;
  * Created by Dmitriy Dumanskiy.
  * Created on 05.02.17.
  */
-public class ReportingDataCleaner {
+public final class ReportingDataCleaner {
+
+    private ReportingDataCleaner() {
+    }
 
     public static void main(String[] args) {
         String reportingFolder = args[0];
@@ -37,7 +40,7 @@ public class ReportingDataCleaner {
 
         System.out.println("Directories number : " + allReporting.length);
 
-        final int COUNT = 360;
+        int count = 24 * 60 * 7; //1 storing minute points only for 1 week
         int filesCount = 0;
         int overrideCount = 0;
 
@@ -60,14 +63,14 @@ public class ReportingDataCleaner {
                         System.out.println("Visited " + filesCount + " files.");
                     }
                     long fileSize = file.length();
-                    if (file.getPath().endsWith("minute.bin") && fileSize > COUNT * 16) {
+                    if (file.getPath().endsWith("minute.bin") && fileSize > count * 16) {
                         System.out.println("Found " + file.getPath() + ". Size : " + fileSize);
                         try {
                             Path path = file.toPath();
-                            ByteBuffer userReportingData = FileUtils.read(path, COUNT);
-                            userReportingData.flip();
+                            ByteBuffer userReportingData = FileUtils.read(path, count);
                             write(file, userReportingData);
-                            System.out.println("Successfully copied. Truncated : " + (fileSize - userReportingData.position()));
+                            System.out.println("Successfully copied. Truncated : "
+                                    + (fileSize - userReportingData.position()));
                             overrideCount++;
                         } catch (Exception e) {
                             System.out.println("Error reading file " + file.getAbsolutePath());

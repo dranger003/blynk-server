@@ -2,20 +2,21 @@ package cc.blynk.server.db;
 
 import cc.blynk.server.core.BlockingIOProcessor;
 import cc.blynk.server.core.dao.UserKey;
-import cc.blynk.server.core.model.AppName;
 import cc.blynk.server.core.model.DashBoard;
 import cc.blynk.server.core.model.Profile;
 import cc.blynk.server.core.model.auth.User;
-import cc.blynk.server.core.model.enums.GraphGranularityType;
 import cc.blynk.server.core.model.enums.PinType;
-import cc.blynk.server.core.reporting.average.AggregationKey;
-import cc.blynk.server.core.reporting.average.AggregationValue;
 import cc.blynk.server.core.reporting.average.AverageAggregatorProcessor;
 import cc.blynk.server.db.dao.ReportingDBDao;
 import cc.blynk.server.db.model.Purchase;
 import cc.blynk.server.db.model.Redeem;
+import cc.blynk.utils.AppNameUtil;
 import cc.blynk.utils.DateTimeUtils;
-import org.junit.*;
+import org.junit.AfterClass;
+import org.junit.Before;
+import org.junit.BeforeClass;
+import org.junit.Ignore;
+import org.junit.Test;
 import org.postgresql.copy.CopyManager;
 import org.postgresql.core.BaseConnection;
 
@@ -27,13 +28,19 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
-import java.time.Instant;
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Map;
+import java.util.TimeZone;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentMap;
 import java.util.zip.GZIPOutputStream;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 /**
  * The Blynk Project.
@@ -62,9 +69,6 @@ public class DBManagerTest {
     public void cleanAll() throws Exception {
         //clean everything just in case
         dbManager.executeSQL("DELETE FROM users");
-        dbManager.executeSQL("DELETE FROM reporting_average_minute");
-        dbManager.executeSQL("DELETE FROM reporting_average_hourly");
-        dbManager.executeSQL("DELETE FROM reporting_average_daily");
         dbManager.executeSQL("DELETE FROM purchase");
         dbManager.executeSQL("DELETE FROM redeem");
     }
@@ -75,61 +79,13 @@ public class DBManagerTest {
     }
 
     @Test
-    @Ignore("Ignoring because of travis CI")
     public void testDbVersion() throws Exception {
         int dbVersion = dbManager.userDBDao.getDBVersion();
         assertTrue(dbVersion >= 90500);
     }
 
     @Test
-    public void testInsert1000RecordsAndSelect() throws Exception {
-        int a = 0;
-
-        String userName = "test@gmail.com";
-
-        long start = System.currentTimeMillis();
-        long minute = (start / AverageAggregatorProcessor.MINUTE) * AverageAggregatorProcessor.MINUTE;
-        long startMinute = minute;
-
-        try (Connection connection = dbManager.getConnection();
-             PreparedStatement ps = connection.prepareStatement(ReportingDBDao.insertMinute)) {
-
-            for (int i = 0; i < 1000; i++) {
-                ReportingDBDao.prepareReportingInsert(ps, userName, 1, 2, (byte) 0, 'v', minute, (double) i);
-                ps.addBatch();
-                minute += AverageAggregatorProcessor.MINUTE;
-                a++;
-            }
-
-            ps.executeBatch();
-            connection.commit();
-        }
-
-        System.out.println("Finished : " + (System.currentTimeMillis() - start)  + " millis. Executed : " + a);
-
-
-        try (Connection connection = dbManager.getConnection();
-             Statement statement = connection.createStatement();
-             ResultSet rs = statement.executeQuery("select * from reporting_average_minute order by ts ASC")) {
-
-            int i = 0;
-            while (rs.next()) {
-                assertEquals(userName, rs.getString("email"));
-                assertEquals(1, rs.getInt("project_id"));
-                assertEquals(2, rs.getInt("device_id"));
-                assertEquals(0, rs.getByte("pin"));
-                assertEquals("v", rs.getString("pinType"));
-                assertEquals(startMinute, rs.getTimestamp("ts", UTC).getTime());
-                assertEquals((double) i, rs.getDouble("value"), 0.0001);
-                startMinute += AverageAggregatorProcessor.MINUTE;
-                i++;
-            }
-            connection.commit();
-        }
-    }
-
-    @Test
-    @Ignore
+    @Ignore("not used right now in read code")
     public void testCopy100RecordsIntoFile() throws Exception {
         System.out.println("Starting");
 
@@ -143,7 +99,7 @@ public class DBManagerTest {
             long minute = (System.currentTimeMillis() / AverageAggregatorProcessor.MINUTE) * AverageAggregatorProcessor.MINUTE;
 
             for (int i = 0; i < 100; i++) {
-                ReportingDBDao.prepareReportingInsert(ps, userName, 1, 0, (byte) 0, 'v', minute, (double) i);
+                ReportingDBDao.prepareReportingInsert(ps, userName, 1, 0, (short) 0, PinType.VIRTUAL, minute, (double) i);
                 ps.addBatch();
                 minute += AverageAggregatorProcessor.MINUTE;
                 a++;
@@ -171,71 +127,20 @@ public class DBManagerTest {
     }
 
     @Test
-    public void testDeleteWorksAsExpected() throws Exception {
-        long minute;
-        try (Connection connection = dbManager.getConnection();
-             PreparedStatement ps = connection.prepareStatement(ReportingDBDao.insertMinute)) {
-
-            minute = (System.currentTimeMillis() / AverageAggregatorProcessor.MINUTE) * AverageAggregatorProcessor.MINUTE;
-
-            for (int i = 0; i < 370; i++) {
-                ReportingDBDao.prepareReportingInsert(ps, "test1111@gmail.com", 1, 0, (byte) 0, 'v', minute, (double) i);
-                ps.addBatch();
-                minute += AverageAggregatorProcessor.MINUTE;
-            }
-
-            ps.executeBatch();
-            connection.commit();
-        }
-        //todo finish.
-        //todo this breaks testInsert1000RecordsAndSelect() test
-        //Instant now = Instant.ofEpochMilli(minute);
-        //dbManager.cleanOldReportingRecords(now);
-
-    }
-
-
-    @Test
-    public void testManyConnections() throws Exception {
-        User user = new User();
-        user.email = "test@test.com";
-        user.appName = AppName.BLYNK;
-        Map<AggregationKey, AggregationValue> map = new ConcurrentHashMap<>();
-        AggregationValue value = new AggregationValue();
-        value.update(1);
-        long ts = System.currentTimeMillis();
-        for (int i = 0; i < 60; i++) {
-            map.put(new AggregationKey(user.email, user.appName, i, 0, PinType.ANALOG.pintTypeChar, (byte) i, ts), value);
-            dbManager.insertReporting(map, GraphGranularityType.MINUTE);
-            dbManager.insertReporting(map, GraphGranularityType.HOURLY);
-            dbManager.insertReporting(map, GraphGranularityType.DAILY);
-
-            map.clear();
-        }
-
-        while (blockingIOProcessor.getActiveCount() > 0) {
-            Thread.sleep(100);
-        }
-
-    }
-
-    @Test
-    @Ignore("Ignored cause travis postgres is old and doesn't support upserts")
     public void testUpsertForDifferentApps() throws Exception {
         ArrayList<User> users = new ArrayList<>();
-        users.add(new User("test1@gmail.com", "pass", "testapp2", "local", false, false));
-        users.add(new User("test1@gmail.com", "pass", "testapp1", "local", false, false));
+        users.add(new User("test1@gmail.com", "pass", "testapp2", "local", "127.0.0.1", false, false));
+        users.add(new User("test1@gmail.com", "pass", "testapp1", "local", "127.0.0.1", false, false));
         dbManager.userDBDao.save(users);
         ConcurrentMap<UserKey, User> dbUsers = dbManager.userDBDao.getAllUsers("local");
         assertEquals(2, dbUsers.size());
     }
 
     @Test
-    @Ignore("Ignored cause travis postgres is old and doesn't support upserts")
     public void testUpsertAndSelect() throws Exception {
         ArrayList<User> users = new ArrayList<>();
         for (int i = 0; i < 10000; i++) {
-            users.add(new User("test" + i + "@gmail.com", "pass", AppName.BLYNK, "local", false, false));
+            users.add(new User("test" + i + "@gmail.com", "pass", AppNameUtil.BLYNK, "local", "127.0.0.1", false, false));
         }
         //dbManager.saveUsers(users);
         dbManager.userDBDao.save(users);
@@ -245,22 +150,21 @@ public class DBManagerTest {
     }
 
     @Test
-    @Ignore("Ignored cause travis postgres is old and doesn't support upserts")
     public void testUpsertUser() throws Exception {
         ArrayList<User> users = new ArrayList<>();
-        User user = new User("test@gmail.com", "pass", AppName.BLYNK, "local", false, false);
+        User user = new User("test@gmail.com", "pass", AppNameUtil.BLYNK, "local", "127.0.0.1", false, false);
         user.name = "123";
         user.lastModifiedTs = 0;
         user.lastLoggedAt = 1;
         user.lastLoggedIP = "127.0.0.1";
         users.add(user);
-        user = new User("test@gmail.com", "pass", AppName.BLYNK, "local", false, false);
+        user = new User("test@gmail.com", "pass", AppNameUtil.BLYNK, "local", "127.0.0.1", false, false);
         user.lastModifiedTs = 0;
         user.lastLoggedAt = 1;
         user.lastLoggedIP = "127.0.0.1";
         user.name = "123";
         users.add(user);
-        user = new User("test2@gmail.com", "pass", AppName.BLYNK, "local", false, false);
+        user = new User("test2@gmail.com", "pass", AppNameUtil.BLYNK, "local", "127.0.0.1", false, false);
         user.lastModifiedTs = 0;
         user.lastLoggedAt = 1;
         user.lastLoggedIP = "127.0.0.1";
@@ -274,7 +178,7 @@ public class DBManagerTest {
              ResultSet rs = statement.executeQuery("select * from users where email = 'test@gmail.com'")) {
             while (rs.next()) {
                 assertEquals("test@gmail.com", rs.getString("email"));
-                assertEquals(AppName.BLYNK, rs.getString("appName"));
+                assertEquals(AppNameUtil.BLYNK, rs.getString("appName"));
                 assertEquals("local", rs.getString("region"));
                 assertEquals("123", rs.getString("name"));
                 assertEquals("pass", rs.getString("pass"));
@@ -292,10 +196,9 @@ public class DBManagerTest {
     }
 
     @Test
-    @Ignore("Ignored cause travis postgres is old and doesn't support upserts")
     public void testUpsertUserFieldUpdated() throws Exception {
         ArrayList<User> users = new ArrayList<>();
-        User user = new User("test@gmail.com", "pass", AppName.BLYNK, "local", false, false);
+        User user = new User("test@gmail.com", "pass", AppNameUtil.BLYNK, "local", "127.0.0.1", false, false);
         user.lastModifiedTs = 0;
         user.lastLoggedAt = 1;
         user.lastLoggedIP = "127.0.0.1";
@@ -304,7 +207,7 @@ public class DBManagerTest {
         dbManager.userDBDao.save(users);
 
         users = new ArrayList<>();
-        user = new User("test@gmail.com", "pass2", AppName.BLYNK, "local2", true, true);
+        user = new User("test@gmail.com", "pass2", AppNameUtil.BLYNK, "local2", "127.0.0.1", true, true);
         user.name = "1234";
         user.lastModifiedTs = 1;
         user.lastLoggedAt = 2;
@@ -320,33 +223,30 @@ public class DBManagerTest {
 
         dbManager.userDBDao.save(users);
 
-        try (Connection connection = dbManager.getConnection();
-             Statement statement = connection.createStatement();
-             ResultSet rs = statement.executeQuery("select * from users where email = 'test@gmail.com'")) {
-            while (rs.next()) {
-                assertEquals("test@gmail.com", rs.getString("email"));
-                assertEquals(AppName.BLYNK, rs.getString("appName"));
-                assertEquals("local2", rs.getString("region"));
-                assertEquals("pass2", rs.getString("pass"));
-                assertEquals("1234", rs.getString("name"));
-                assertEquals(1, rs.getTimestamp("last_modified", DateTimeUtils.UTC_CALENDAR).getTime());
-                assertEquals(2, rs.getTimestamp("last_logged", DateTimeUtils.UTC_CALENDAR).getTime());
-                assertEquals("127.0.0.2", rs.getString("last_logged_ip"));
-                assertTrue(rs.getBoolean("is_facebook_user"));
-                assertTrue(rs.getBoolean("is_super_admin"));
-                assertEquals(1000, rs.getInt("energy"));
+        ConcurrentMap<UserKey, User>  persistent = dbManager.userDBDao.getAllUsers("local2");
 
-                assertEquals("{\"dashBoards\":[{\"id\":1,\"name\":\"123\",\"createdAt\":0,\"updatedAt\":0,\"theme\":\"Blynk\",\"keepScreenOn\":false,\"isAppConnectedOn\":false,\"isShared\":false,\"isActive\":false}]}", rs.getString("json"));
-            }
-            connection.commit();
-        }
+        user = persistent.get(new UserKey("test@gmail.com", AppNameUtil.BLYNK));
+
+        assertEquals("test@gmail.com", user.email);
+        assertEquals(AppNameUtil.BLYNK, user.appName);
+        assertEquals("local2", user.region);
+        assertEquals("pass2", user.pass);
+        assertEquals("1234", user.name);
+        assertEquals("127.0.0.1", user.ip);
+        assertEquals(1, user.lastModifiedTs);
+        assertEquals(2, user.lastLoggedAt);
+        assertEquals("127.0.0.2", user.lastLoggedIP);
+        assertTrue(user.isFacebookUser);
+        assertTrue(user.isSuperAdmin);
+        assertEquals(1000, user.energy);
+
+        assertEquals("{\"dashBoards\":[{\"id\":1,\"parentId\":-1,\"isPreview\":false,\"name\":\"123\",\"createdAt\":0,\"updatedAt\":0,\"theme\":\"Blynk\",\"keepScreenOn\":false,\"isAppConnectedOn\":false,\"isNotificationsOff\":false,\"isShared\":false,\"isActive\":false,\"widgetBackgroundOn\":false,\"color\":-1,\"isDefaultColor\":true}]}", user.profile.toString());
     }
 
     @Test
-    @Ignore("Ignored cause travis postgres is old and doesn't support upserts")
     public void testInsertAndGetUser() throws Exception {
         ArrayList<User> users = new ArrayList<>();
-        User user = new User("test@gmail.com", "pass", AppName.BLYNK, "local", true, true);
+        User user = new User("test@gmail.com", "pass", AppNameUtil.BLYNK, "local", "127.0.0.1", true, true);
         user.lastModifiedTs = 0;
         user.lastLoggedAt = 1;
         user.lastLoggedIP = "127.0.0.1";
@@ -366,25 +266,24 @@ public class DBManagerTest {
         User dbUser = dbUsers.get(new UserKey(user.email, user.appName));
 
         assertEquals("test@gmail.com", dbUser.email);
-        assertEquals(AppName.BLYNK, dbUser.appName);
+        assertEquals(AppNameUtil.BLYNK, dbUser.appName);
         assertEquals("local", dbUser.region);
         assertEquals("pass", dbUser.pass);
         assertEquals(0, dbUser.lastModifiedTs);
         assertEquals(1, dbUser.lastLoggedAt);
         assertEquals("127.0.0.1", dbUser.lastLoggedIP);
-        assertEquals("{\"dashBoards\":[{\"id\":1,\"parentId\":-1,\"isPreview\":false,\"name\":\"123\",\"createdAt\":0,\"updatedAt\":0,\"theme\":\"Blynk\",\"keepScreenOn\":false,\"isAppConnectedOn\":false,\"isShared\":false,\"isActive\":false}]}", dbUser.profile.toString());
+        assertEquals("{\"dashBoards\":[{\"id\":1,\"parentId\":-1,\"isPreview\":false,\"name\":\"123\",\"createdAt\":0,\"updatedAt\":0,\"theme\":\"Blynk\",\"keepScreenOn\":false,\"isAppConnectedOn\":false,\"isNotificationsOff\":false,\"isShared\":false,\"isActive\":false,\"widgetBackgroundOn\":false,\"color\":-1,\"isDefaultColor\":true}]}", dbUser.profile.toString());
         assertTrue(dbUser.isFacebookUser);
         assertTrue(dbUser.isSuperAdmin);
         assertEquals(2000, dbUser.energy);
 
-        assertEquals("{\"dashBoards\":[{\"id\":1,\"parentId\":-1,\"isPreview\":false,\"name\":\"123\",\"createdAt\":0,\"updatedAt\":0,\"theme\":\"Blynk\",\"keepScreenOn\":false,\"isAppConnectedOn\":false,\"isShared\":false,\"isActive\":false}]}", dbUser.profile.toString());
+        assertEquals("{\"dashBoards\":[{\"id\":1,\"parentId\":-1,\"isPreview\":false,\"name\":\"123\",\"createdAt\":0,\"updatedAt\":0,\"theme\":\"Blynk\",\"keepScreenOn\":false,\"isAppConnectedOn\":false,\"isNotificationsOff\":false,\"isShared\":false,\"isActive\":false,\"widgetBackgroundOn\":false,\"color\":-1,\"isDefaultColor\":true}]}", dbUser.profile.toString());
     }
 
     @Test
-    @Ignore("Ignored cause travis postgres is old and doesn't support upserts")
     public void testInsertGetDeleteUser() throws Exception {
         ArrayList<User> users = new ArrayList<>();
-        User user = new User("test@gmail.com", "pass", AppName.BLYNK, "local", true, true);
+        User user = new User("test@gmail.com", "pass", AppNameUtil.BLYNK, "local", "127.0.0.1", true, true);
         user.lastModifiedTs = 0;
         user.lastLoggedAt = 1;
         user.lastLoggedIP = "127.0.0.1";
@@ -404,18 +303,18 @@ public class DBManagerTest {
         User dbUser = dbUsers.get(new UserKey(user.email, user.appName));
 
         assertEquals("test@gmail.com", dbUser.email);
-        assertEquals(AppName.BLYNK, dbUser.appName);
+        assertEquals(AppNameUtil.BLYNK, dbUser.appName);
         assertEquals("local", dbUser.region);
         assertEquals("pass", dbUser.pass);
         assertEquals(0, dbUser.lastModifiedTs);
         assertEquals(1, dbUser.lastLoggedAt);
         assertEquals("127.0.0.1", dbUser.lastLoggedIP);
-        assertEquals("{\"dashBoards\":[{\"id\":1,\"parentId\":-1,\"isPreview\":false,\"name\":\"123\",\"createdAt\":0,\"updatedAt\":0,\"theme\":\"Blynk\",\"keepScreenOn\":false,\"isAppConnectedOn\":false,\"isShared\":false,\"isActive\":false}]}", dbUser.profile.toString());
+        assertEquals("{\"dashBoards\":[{\"id\":1,\"parentId\":-1,\"isPreview\":false,\"name\":\"123\",\"createdAt\":0,\"updatedAt\":0,\"theme\":\"Blynk\",\"keepScreenOn\":false,\"isAppConnectedOn\":false,\"isNotificationsOff\":false,\"isShared\":false,\"isActive\":false,\"widgetBackgroundOn\":false,\"color\":-1,\"isDefaultColor\":true}]}", dbUser.profile.toString());
         assertTrue(dbUser.isFacebookUser);
         assertTrue(dbUser.isSuperAdmin);
         assertEquals(2000, dbUser.energy);
 
-        assertEquals("{\"dashBoards\":[{\"id\":1,\"parentId\":-1,\"isPreview\":false,\"name\":\"123\",\"createdAt\":0,\"updatedAt\":0,\"theme\":\"Blynk\",\"keepScreenOn\":false,\"isAppConnectedOn\":false,\"isShared\":false,\"isActive\":false}]}", dbUser.profile.toString());
+        assertEquals("{\"dashBoards\":[{\"id\":1,\"parentId\":-1,\"isPreview\":false,\"name\":\"123\",\"createdAt\":0,\"updatedAt\":0,\"theme\":\"Blynk\",\"keepScreenOn\":false,\"isAppConnectedOn\":false,\"isNotificationsOff\":false,\"isShared\":false,\"isActive\":false,\"widgetBackgroundOn\":false,\"color\":-1,\"isDefaultColor\":true}]}", dbUser.profile.toString());
 
         assertTrue(dbManager.userDBDao.deleteUser(new UserKey(user.email, user.appName)));
         dbUsers = dbManager.userDBDao.getAllUsers("local");
@@ -434,7 +333,7 @@ public class DBManagerTest {
 
     @Test
     public void testPurchase() throws Exception {
-        dbManager.insertPurchase(new Purchase("test@gmail.com", 1000, "123456"));
+        dbManager.insertPurchase(new Purchase("test@gmail.com", 1000, 1.00D, "123456"));
 
 
         try (Connection connection = dbManager.getConnection();
@@ -478,26 +377,23 @@ public class DBManagerTest {
     }
 
     @Test
-    public void testSelect() throws Exception {
-        long ts = 1455924480000L;
-        try (Connection connection = dbManager.getConnection();
-             PreparedStatement ps = connection.prepareStatement(ReportingDBDao.selectMinute)) {
-
-            ReportingDBDao.prepareReportingSelect(ps, ts, 2);
-             ResultSet rs = ps.executeQuery();
-
-
-            while(rs.next()) {
-                System.out.println(rs.getLong("ts") + " " + rs.getDouble("value"));
-            }
-
-            rs.close();
-        }
+    public void getUserIpNotExists() {
+        String userIp = dbManager.userDBDao.getUserServerIp("test@gmail.com", AppNameUtil.BLYNK);
+        assertNull(userIp);
     }
 
     @Test
-    public void cleanOutdatedRecords() throws Exception{
-        dbManager.reportingDBDao.cleanOldReportingRecords(Instant.now());
-    }
+    public void getUserIp() {
+        ArrayList<User> users = new ArrayList<>();
+        User user = new User("test@gmail.com", "pass", AppNameUtil.BLYNK, "local", "127.0.0.1", false, false);
+        user.lastModifiedTs = 0;
+        user.lastLoggedAt = 1;
+        user.lastLoggedIP = "127.0.0.1";
+        users.add(user);
 
+        dbManager.userDBDao.save(users);
+
+        String userIp = dbManager.userDBDao.getUserServerIp("test@gmail.com", AppNameUtil.BLYNK);
+        assertEquals("127.0.0.1", userIp);
+    }
 }

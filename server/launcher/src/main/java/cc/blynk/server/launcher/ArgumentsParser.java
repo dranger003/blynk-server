@@ -4,13 +4,13 @@ import cc.blynk.cli.CommandLine;
 import cc.blynk.cli.DefaultParser;
 import cc.blynk.cli.Options;
 import cc.blynk.cli.ParseException;
-import cc.blynk.server.notifications.mail.MailWrapper;
-import cc.blynk.server.notifications.sms.SMSWrapper;
-import cc.blynk.utils.ParseUtil;
-import cc.blynk.utils.ServerProperties;
 
 import java.util.HashMap;
 import java.util.Map;
+
+import static cc.blynk.utils.properties.MailProperties.MAIL_PROPERTIES_FILENAME;
+import static cc.blynk.utils.properties.ServerProperties.SERVER_PROPERTIES_FILENAME;
+import static cc.blynk.utils.properties.SmsProperties.SMS_PROPERTIES_FILENAME;
 
 /**
  * Simple class for command line arguments parsing.
@@ -19,7 +19,7 @@ import java.util.Map;
  * Created by Dmitriy Dumanskiy.
  * Created on 25.03.15.
  */
-class ArgumentsParser {
+final class ArgumentsParser {
 
     private static final Options options;
 
@@ -30,11 +30,11 @@ class ArgumentsParser {
     private static final String SERVER_CONFIG_PATH_OPTION = "serverConfig";
     private static final String MAIL_CONFIG_PATH_OPTION = "mailConfig";
     private static final String SMS_CONFIG_PATH_OPTION = "smsConfig";
-    public static final String RESTORE_OPTION = "restore";
+    static final String RESTORE_OPTION = "restore";
 
     static  {
-        options = new Options();
-        options.addOption(HARDWARE_PORT_OPTION, true, "Hardware server port.")
+        options = new Options()
+               .addOption(HARDWARE_PORT_OPTION, true, "Hardware server port.")
                .addOption(APPLICATION_PORT_OPTION, true, "Application server port.")
                .addOption(WORKER_THREADS_OPTION, true, "Server worker threads.")
                .addOption(DATA_FOLDER_OPTION, true, "Folder where user profiles will be stored.")
@@ -44,12 +44,15 @@ class ArgumentsParser {
                .addOption(RESTORE_OPTION, false, "Restore data from DB.");
     }
 
+    private ArgumentsParser() {
+    }
+
     /**
      * Simply parsers command line arguments and sets it to server properties for future use.
      *
      * @param args - command line arguments
-     * @throws ParseException
      */
+    @SuppressWarnings("ResultOfMethodCallIgnored")
     static Map<String, String> parse(String[] args) throws ParseException {
         CommandLine cmd = new DefaultParser().parse(options, args);
 
@@ -65,28 +68,30 @@ class ArgumentsParser {
         Map<String, String> properties = new HashMap<>();
 
         if (hardPort != null) {
-            ParseUtil.parseInt(hardPort);
-            properties.put("hardware.default.port", hardPort);
+            Integer.parseInt(hardPort);
+            properties.put("http.port", hardPort);
         }
+
         if (appPort != null) {
-            ParseUtil.parseInt(appPort);
-            properties.put("app.ssl.port", appPort);
+            Integer.parseInt(appPort);
+            properties.put("https.port", appPort);
         }
+
         if (workerThreadsString != null) {
-            ParseUtil.parseInt(workerThreadsString);
+            Integer.parseInt(workerThreadsString);
             properties.put("server.worker.threads", workerThreadsString);
         }
         if (dataFolder != null) {
             properties.put("data.folder", dataFolder);
         }
         if (serverConfigPath != null) {
-            properties.put(ServerProperties.SERVER_PROPERTIES_FILENAME, serverConfigPath);
+            properties.put(SERVER_PROPERTIES_FILENAME, serverConfigPath);
         }
         if (mailConfigPath != null) {
-            properties.put(MailWrapper.MAIL_PROPERTIES_FILENAME, mailConfigPath);
+            properties.put(MAIL_PROPERTIES_FILENAME, mailConfigPath);
         }
         if (smsConfigPath != null) {
-            properties.put(SMSWrapper.SMS_PROPERTIES_FILENAME, smsConfigPath);
+            properties.put(SMS_PROPERTIES_FILENAME, smsConfigPath);
         }
 
         properties.put(RESTORE_OPTION, Boolean.toString(restore));

@@ -13,11 +13,10 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
  */
 @JsonTypeInfo(
         use = JsonTypeInfo.Id.NAME,
-        include = JsonTypeInfo.As.PROPERTY,
         property = "type")
 @JsonSubTypes({
+        @JsonSubTypes.Type(value = SetPropertyPinAction.class, name = "SET_PROP"),
         @JsonSubTypes.Type(value = SetPinAction.class, name = "SETPIN"),
-        @JsonSubTypes.Type(value = WaitAction.class, name = "WAIT"),
         @JsonSubTypes.Type(value = NotifyAction.class, name = "NOTIFY"),
         @JsonSubTypes.Type(value = MailAction.class, name = "MAIL"),
         @JsonSubTypes.Type(value = TwitAction.class, name = "TWIT"),

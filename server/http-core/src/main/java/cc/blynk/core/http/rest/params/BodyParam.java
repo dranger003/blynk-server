@@ -1,8 +1,8 @@
 package cc.blynk.core.http.rest.params;
 
-import cc.blynk.core.http.MediaType;
 import cc.blynk.core.http.rest.URIDecoder;
-import cc.blynk.utils.JsonParser;
+import cc.blynk.server.core.model.serialization.JsonParser;
+import cc.blynk.utils.http.MediaType;
 import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.databind.JsonMappingException;
 import io.netty.channel.ChannelHandlerContext;
@@ -36,9 +36,9 @@ public class BodyParam extends Param {
                 String data = "";
                 try {
                     data = uriDecoder.getContentAsString();
-                    return JsonParser.mapper.readValue(data, type);
+                    return JsonParser.MAPPER.readValue(data, type);
                 } catch (JsonParseException | JsonMappingException jsonParseError) {
-                    log.warn("Error parsing body param : '{}'.", data);
+                    log.debug("Error parsing body param : '{}'.", data);
                     throw new RuntimeException("Error parsing body param. " + data);
                 } catch (Exception e) {
                     log.error("Unexpected error during parsing body param.", e);

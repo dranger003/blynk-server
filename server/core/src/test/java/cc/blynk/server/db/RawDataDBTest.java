@@ -1,9 +1,11 @@
 package cc.blynk.server.db;
 
 import cc.blynk.server.core.BlockingIOProcessor;
-import cc.blynk.server.core.model.AppName;
 import cc.blynk.server.core.model.auth.User;
+import cc.blynk.server.core.model.enums.PinType;
+import cc.blynk.server.core.reporting.raw.BaseReportingKey;
 import cc.blynk.server.core.reporting.raw.RawDataProcessor;
+import cc.blynk.utils.AppNameUtil;
 import cc.blynk.utils.NumberUtil;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -16,7 +18,9 @@ import java.sql.Statement;
 import java.util.Calendar;
 import java.util.TimeZone;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 
 /**
  * The Blynk Project.
@@ -25,7 +29,7 @@ import static org.junit.Assert.*;
  */
 public class RawDataDBTest {
 
-    private static DBManager dbManager;
+    private static ReportingDBManager reportingDBManager;
     private static BlockingIOProcessor blockingIOProcessor;
     private static final Calendar UTC = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
     private static User user;
@@ -33,33 +37,33 @@ public class RawDataDBTest {
     @BeforeClass
     public static void init() throws Exception {
         blockingIOProcessor = new BlockingIOProcessor(4, 10000);
-        dbManager = new DBManager("db-test.properties", blockingIOProcessor, true);
-        assertNotNull(dbManager.getConnection());
+        reportingDBManager = new ReportingDBManager("db-test.properties", blockingIOProcessor, true);
+        assertNotNull(reportingDBManager.getConnection());
         user = new User();
         user.email = "test@test.com";
-        user.appName = AppName.BLYNK;
+        user.appName = AppNameUtil.BLYNK;
     }
 
     @AfterClass
     public static void close() {
-        dbManager.close();
+        reportingDBManager.close();
     }
 
     @Before
     public void cleanAll() throws Exception {
         //clean everything just in case
-        dbManager.executeSQL("DELETE FROM reporting_raw_data");
+        reportingDBManager.executeSQL("DELETE FROM reporting_raw_data");
     }
 
     @Test
     public void testInsertStringAsRawData() throws Exception {
         RawDataProcessor rawDataProcessor = new RawDataProcessor(true);
-        rawDataProcessor.collect(user, 1, 2, 'v', (byte) 3, 1111111111, "Lamp is ON", NumberUtil.NO_RESULT);
+        rawDataProcessor.collect(new BaseReportingKey(user.email, user.appName, 1, 2, PinType.VIRTUAL, (short) 3), 1111111111, "Lamp is ON", NumberUtil.NO_RESULT);
 
         //invoking directly dao to avoid separate thread execution
-        dbManager.reportingDBDao.insertRawData(rawDataProcessor.rawStorage);
+        reportingDBManager.reportingDBDao.insertRawData(rawDataProcessor.rawStorage);
 
-        try (Connection connection = dbManager.getConnection();
+        try (Connection connection = reportingDBManager.getConnection();
              Statement statement = connection.createStatement();
              ResultSet rs = statement.executeQuery("select * from reporting_raw_data")) {
 
@@ -83,12 +87,12 @@ public class RawDataDBTest {
     @Test
     public void testInsertDoubleAsRawData() throws Exception {
         RawDataProcessor rawDataProcessor = new RawDataProcessor(true);
-        rawDataProcessor.collect(user, 1, 2, 'v', (byte) 3, 1111111111, "Lamp is ON", 1.33D);
+        rawDataProcessor.collect(new BaseReportingKey(user.email, user.appName, 1, 2, PinType.VIRTUAL, (short) 3), 1111111111, "Lamp is ON", 1.33D);
 
         //invoking directly dao to avoid separate thread execution
-        dbManager.reportingDBDao.insertRawData(rawDataProcessor.rawStorage);
+        reportingDBManager.reportingDBDao.insertRawData(rawDataProcessor.rawStorage);
 
-        try (Connection connection = dbManager.getConnection();
+        try (Connection connection = reportingDBManager.getConnection();
              Statement statement = connection.createStatement();
              ResultSet rs = statement.executeQuery("select * from reporting_raw_data")) {
 

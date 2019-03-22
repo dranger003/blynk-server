@@ -1,8 +1,10 @@
 package cc.blynk.server.core.model.widgets;
 
-import cc.blynk.server.core.model.enums.PinType;
+import cc.blynk.server.core.model.enums.PinMode;
 
 /**
+ * All widgets that doesn't have pins on UI should extend this class.
+ *
  * The Blynk Project.
  * Created by Dmitriy Dumanskiy.
  * Created on 21.04.16.
@@ -10,37 +12,20 @@ import cc.blynk.server.core.model.enums.PinType;
 public abstract class NoPinWidget extends Widget {
 
     @Override
-    public boolean updateIfSame(int deviceId, byte pin, PinType type, String values) {
+    public PinMode getModeType() {
+        return null;
+    }
+
+    @Override
+    public void erase() {
+    }
+
+    @Override
+    public void updateValue(Widget oldWidget) {
+    }
+
+    @Override
+    public boolean isAssignedToDevice(int deviceId) {
         return false;
     }
-
-    @Override
-    public void updateIfSame(Widget widget) {
-        //do nothing
-    }
-
-    @Override
-    public boolean isSame(int deviceId, byte pin, PinType type) {
-        return false;
-    }
-
-    @Override
-    public String getJsonValue() {
-        return null;
-    }
-
-    @Override
-    public String getModeType() {
-        return null;
-    }
-
-    @Override
-    public String getValue(byte pin, PinType type) {
-        return null;
-    }
-
-    @Override
-    public void append(StringBuilder sb, int deviceId) {
-    }
-
 }

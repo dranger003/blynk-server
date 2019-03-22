@@ -1,5 +1,7 @@
 package cc.blynk.server.core.model.widgets.controls;
 
+import cc.blynk.server.core.model.enums.PinMode;
+import cc.blynk.server.core.model.enums.WidgetProperty;
 import cc.blynk.server.core.model.widgets.OnePinWidget;
 
 /**
@@ -13,18 +15,28 @@ public class Slider extends OnePinWidget {
 
     public int frequency;
 
-    @Override
-    public String getModeType() {
-        return "out";
-    }
+    public int maximumFractionDigits;
+
+    public boolean showValueOn = true;
 
     @Override
-    public boolean isPWMSupported() {
-        return pwmMode;
+    public PinMode getModeType() {
+        return PinMode.out;
     }
 
     @Override
     public int getPrice() {
         return 200;
+    }
+
+    @Override
+    public boolean setProperty(WidgetProperty property, String propertyValue) {
+        switch (property) {
+            case FRACTION :
+                this.maximumFractionDigits = Integer.parseInt(propertyValue);
+                return true;
+            default:
+                return super.setProperty(property, propertyValue);
+        }
     }
 }

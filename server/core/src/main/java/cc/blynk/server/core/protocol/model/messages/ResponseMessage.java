@@ -10,8 +10,11 @@ import cc.blynk.server.core.protocol.enums.Response;
  */
 public class ResponseMessage extends MessageBase {
 
+    public final int code;
+
     public ResponseMessage(int messageId, int responseCode) {
-        super(messageId, Command.RESPONSE, responseCode);
+        super(messageId, Command.RESPONSE);
+        this.code = responseCode;
     }
 
     @Override
@@ -21,8 +24,32 @@ public class ResponseMessage extends MessageBase {
 
     @Override
     public String toString() {
-        return "ResponseMessage{id=" + id +
-                ", command=" + Command.getNameByValue(command) +
-                ", responseCode=" + Response.getNameByValue(length) + "}";
+        return "ResponseMessage{id=" + id
+                + ", command=" + Command.getNameByValue(command)
+                + ", responseCode=" + Response.getNameByValue(code) + "}";
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof ResponseMessage)) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+
+        ResponseMessage that = (ResponseMessage) o;
+
+        return code == that.code;
+    }
+
+    @Override
+    public int hashCode() {
+        int result = super.hashCode();
+        result = 31 * result + code;
+        return result;
     }
 }

@@ -1,6 +1,5 @@
 package cc.blynk.server.admin.http.handlers;
 
-import cc.blynk.utils.ParseUtil;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.ipfilter.AbstractRemoteAddressFilter;
@@ -9,7 +8,6 @@ import io.netty.handler.ipfilter.IpSubnetFilterRule;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.net.Inet6Address;
 import java.net.InetSocketAddress;
 import java.util.HashSet;
 import java.util.Set;
@@ -35,7 +33,7 @@ public class IpFilterHandler extends AbstractRemoteAddressFilter<InetSocketAddre
             if (allowedIP.contains("/")) {
                 String[] split = allowedIP.split("/");
                 String ip = split[0];
-                int cidr = ParseUtil.parseInt(split[1]);
+                int cidr = Integer.parseInt(split[1]);
                 this.rules.add(new IpSubnetFilterRule(ip, cidr, IpFilterRuleType.ACCEPT));
             } else {
                 this.allowedIPs.add(allowedIP);
@@ -43,21 +41,20 @@ public class IpFilterHandler extends AbstractRemoteAddressFilter<InetSocketAddre
         }
     }
 
+    public boolean accept(ChannelHandlerContext ctx) {
+        return accept(ctx, (InetSocketAddress) ctx.channel().remoteAddress());
+    }
+
     @Override
     public boolean accept(ChannelHandlerContext ctx, InetSocketAddress remoteAddress) {
         if (allowedIPs.size() == 0 && rules.size() == 0) {
+            log.error("allowed.administrator.ips property is empty. Access restricted.");
             return false;
         }
 
-        if (allowedIPs.contains(remoteAddress.getAddress().getHostAddress())) {
+        String remoteHost = remoteAddress.getAddress().getHostAddress();
+        if (allowedIPs.contains(remoteHost)) {
             return true;
-        }
-
-        if (remoteAddress.getAddress() instanceof Inet6Address) {
-            log.error("Look like you are trying to connect with IPv6 : {}.  While in 'allowed.administrator.ips' " +
-                    "you are using IPv4.",
-                    remoteAddress.getAddress().getHostAddress());
-            return false;
         }
 
         for (IpSubnetFilterRule rule : rules) {
@@ -66,6 +63,7 @@ public class IpFilterHandler extends AbstractRemoteAddressFilter<InetSocketAddre
             }
         }
 
+        log.error("Access restricted for {}.", remoteHost);
         return false;
     }
 }

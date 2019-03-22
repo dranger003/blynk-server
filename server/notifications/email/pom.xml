@@ -3,7 +3,7 @@
     <parent>
         <artifactId>notifications</artifactId>
         <groupId>cc.blynk.server.notifications</groupId>
-        <version>0.25.3-SNAPSHOT</version>
+        <version>0.41.5-SNAPSHOT</version>
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
@@ -12,16 +12,21 @@
     <dependencies>
 
         <dependency>
-            <groupId>javax</groupId>
-            <artifactId>javaee-api</artifactId>
-            <version>7.0</version>
-            <scope>provided</scope>
-        </dependency>
-
-        <dependency>
             <groupId>com.sun.mail</groupId>
             <artifactId>javax.mail</artifactId>
             <version>${javax.mail.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>javax.activation</groupId>
+                    <artifactId>activation</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <dependency>
+            <groupId>com.sun.activation</groupId>
+            <artifactId>javax.activation</artifactId>
+            <version>${javax.activation.version}</version>
         </dependency>
 
         <dependency>
@@ -34,6 +39,12 @@
             <groupId>com.github.kenglxn.qrgen</groupId>
             <artifactId>javase</artifactId>
             <version>${qrgen.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>cc.blynk.utils</groupId>
+            <artifactId>utils</artifactId>
+            <version>${project.version}</version>
         </dependency>
 
     </dependencies>

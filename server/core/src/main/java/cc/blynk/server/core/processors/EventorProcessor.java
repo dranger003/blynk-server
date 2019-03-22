@@ -2,9 +2,11 @@ package cc.blynk.server.core.processors;
 
 import cc.blynk.server.core.BlockingIOProcessor;
 import cc.blynk.server.core.model.DashBoard;
+import cc.blynk.server.core.model.Profile;
 import cc.blynk.server.core.model.auth.Session;
 import cc.blynk.server.core.model.auth.User;
 import cc.blynk.server.core.model.enums.PinType;
+import cc.blynk.server.core.model.widgets.Widget;
 import cc.blynk.server.core.model.widgets.notifications.Mail;
 import cc.blynk.server.core.model.widgets.notifications.Notification;
 import cc.blynk.server.core.model.widgets.notifications.Twitter;
@@ -12,6 +14,7 @@ import cc.blynk.server.core.model.widgets.others.eventor.Eventor;
 import cc.blynk.server.core.model.widgets.others.eventor.Rule;
 import cc.blynk.server.core.model.widgets.others.eventor.model.action.BaseAction;
 import cc.blynk.server.core.model.widgets.others.eventor.model.action.SetPinAction;
+import cc.blynk.server.core.model.widgets.others.eventor.model.action.SetPropertyPinAction;
 import cc.blynk.server.core.model.widgets.others.eventor.model.action.notification.MailAction;
 import cc.blynk.server.core.model.widgets.others.eventor.model.action.notification.NotificationAction;
 import cc.blynk.server.core.model.widgets.others.eventor.model.action.notification.NotifyAction;
@@ -22,11 +25,15 @@ import cc.blynk.server.notifications.push.GCMWrapper;
 import cc.blynk.server.notifications.twitter.TwitterWrapper;
 import cc.blynk.utils.NumberUtil;
 import cc.blynk.utils.validators.BlynkEmailValidator;
+import io.netty.handler.codec.http.HttpResponseStatus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.asynchttpclient.AsyncCompletionHandler;
+import org.asynchttpclient.Response;
 
 import static cc.blynk.server.core.protocol.enums.Command.EVENTOR;
 import static cc.blynk.server.core.protocol.enums.Command.HARDWARE;
+import static cc.blynk.server.core.protocol.enums.Command.SET_WIDGET_PROPERTY;
 import static cc.blynk.utils.StringUtils.PIN_PATTERN;
 
 /**
@@ -55,38 +62,20 @@ public class EventorProcessor {
         this.globalStats = stats;
     }
 
-    public void process(User user, Session session, DashBoard dash, int deviceId, byte pin, PinType type, String triggerValue, long now) {
-        Eventor eventor = dash.getWidgetByType(Eventor.class);
-        if (eventor == null || eventor.rules == null ||
-            eventor.deviceId != deviceId || !dash.isActive) {
+    public static void push(GCMWrapper gcmWrapper, DashBoard dash, String body) {
+        if (Notification.isWrongBody(body)) {
+            log.debug("Wrong push body.");
             return;
         }
 
-        double valueParsed = NumberUtil.parseDouble(triggerValue);
-        if (valueParsed == NumberUtil.NO_RESULT) {
+        Notification widget = dash.getNotificationWidget();
+
+        if (widget == null || widget.hasNoToken()) {
+            log.debug("User has no access token provided for eventor push.");
             return;
         }
 
-        for (Rule rule : eventor.rules) {
-            if (rule.isReady(pin, type)) {
-                if (rule.isValid(valueParsed)) {
-                    if (!rule.isProcessed) {
-                        for (BaseAction action : rule.actions) {
-                            if (action.isValid()) {
-                                if (action instanceof SetPinAction) {
-                                    execute(session, dash, deviceId, (SetPinAction) action, now);
-                                } else if (action instanceof NotificationAction) {
-                                    execute(user, dash, triggerValue, (NotificationAction) action);
-                                }
-                            }
-                        }
-                        rule.isProcessed = true;
-                    }
-                } else {
-                    rule.isProcessed = false;
-                }
-            }
-        }
+        widget.push(gcmWrapper, body, dash.id);
     }
 
     private void execute(User user, DashBoard dash, String triggerValue, NotificationAction notificationAction) {
@@ -99,11 +88,45 @@ public class EventorProcessor {
             MailAction mailAction = (MailAction) notificationAction;
             email(user, dash, mailAction.subject, body);
         }
-        globalStats.mark(EVENTOR);
+    }
+
+    public void process(User user, Session session, DashBoard dash, int deviceId, short pin,
+                        PinType type, String triggerValue, long now) {
+        Eventor eventor = dash.getEventorWidget();
+        if (eventor == null || eventor.rules == null
+                || eventor.deviceId != deviceId || !dash.isActive) {
+            return;
+        }
+
+        double valueParsed = NumberUtil.parseDouble(triggerValue);
+
+        for (Rule rule : eventor.rules) {
+            if (rule.isReady(pin, type)) {
+                if (rule.matchesCondition(triggerValue, valueParsed)) {
+                    if (!rule.isProcessed) {
+                        for (BaseAction action : rule.actions) {
+                            if (action.isValid()) {
+                                if (action instanceof SetPinAction) {
+                                    execute(session, user.profile, dash, deviceId, (SetPinAction) action, now);
+                                } else if (action instanceof SetPropertyPinAction) {
+                                    execute(session, user.profile, dash, deviceId, (SetPropertyPinAction) action, now);
+                                } else if (action instanceof NotificationAction) {
+                                    execute(user, dash, triggerValue, (NotificationAction) action);
+                                }
+                                globalStats.mark(EVENTOR);
+                            }
+                        }
+                        rule.isProcessed = true;
+                    }
+                } else {
+                    rule.isProcessed = false;
+                }
+            }
+        }
     }
 
     private void email(User user, DashBoard dash, String subject, String body) {
-        Mail mail = dash.getWidgetByType(Mail.class);
+        Mail mail = dash.getMailWidget();
 
         if (mail == null) {
             log.debug("User has no mail widget.");
@@ -123,7 +146,8 @@ public class EventorProcessor {
             try {
                 mailWrapper.sendText(to, subject, body);
             } catch (Exception e) {
-                log.warn("Error sending email from eventor. From user {}, to : {}. Reason : {}",  user.email, to, e.getMessage());
+                log.warn("Error sending email from eventor. From user {}, to : {}. Reason : {}",
+                        user.email, to, e.getMessage());
             }
         });
         user.emailMessages++;
@@ -135,50 +159,55 @@ public class EventorProcessor {
             return;
         }
 
-        Twitter twitterWidget = dash.getWidgetByType(Twitter.class);
+        Twitter twitterWidget = dash.getTwitterWidget();
 
-        if (twitterWidget == null ||
-                twitterWidget.token == null || twitterWidget.token.isEmpty() ||
-                twitterWidget.secret == null || twitterWidget.secret.isEmpty()) {
+        if (twitterWidget == null
+                || twitterWidget.token == null
+                || twitterWidget.token.isEmpty()
+                || twitterWidget.secret == null
+                || twitterWidget.secret.isEmpty()) {
             log.debug("User has no access token provided for eventor twit.");
             return;
         }
 
-        blockingIOProcessor.execute(() -> {
-            try {
-                twitterWrapper.send(twitterWidget.token, twitterWidget.secret, body);
-            } catch (Exception e) {
-                String errorMessage = e.getMessage();
-                if (errorMessage != null && errorMessage.contains("Eventor. Status is a duplicate")) {
-                    log.warn("Error sending twit. Reason : {}", e.getMessage());
+        twitterWrapper.send(twitterWidget.token, twitterWidget.secret, body,
+                new AsyncCompletionHandler<>() {
+                    @Override
+                    public Response onCompleted(Response response) {
+                        if (response.getStatusCode() != HttpResponseStatus.OK.code()) {
+                            log.debug("Error sending twit from eventor. Reason : {}.", response.getResponseBody());
+                        }
+                        return response;
+                    }
+
+                    @Override
+                    public void onThrowable(Throwable t) {
+                        log.debug("Error sending twit from eventor.", t);
+                    }
                 }
-            }
-        });
+        );
     }
 
-    public static void push(GCMWrapper gcmWrapper, DashBoard dash, String body) {
-        if (Notification.isWrongBody(body)) {
-            log.debug("Wrong push body.");
-            return;
-        }
-
-        Notification widget = dash.getWidgetByType(Notification.class);
-
-        if (widget == null || widget.hasNoToken()) {
-            log.debug("User has no access token provided for eventor push.");
-            return;
-        }
-
-        widget.push(gcmWrapper, body, dash.id);
-    }
-
-    private void execute(Session session, DashBoard dash, int deviceId, SetPinAction action, long now) {
-        final String body = action.makeHardwareBody();
+    private void execute(Session session, Profile profile, DashBoard dash,
+                         int deviceId, SetPinAction action, long now) {
+        String body = action.makeHardwareBody();
         session.sendMessageToHardware(dash.id, HARDWARE, 888, body, deviceId);
         session.sendToApps(HARDWARE, 888, dash.id, deviceId, body);
 
-        dash.update(deviceId, action.pin.pin, action.pin.pinType, action.value, now);
+        profile.update(dash, deviceId, action.dataStream.pin, action.dataStream.pinType, action.value, now);
+    }
 
-        globalStats.mark(EVENTOR);
+    private void execute(Session session, Profile profile, DashBoard dash,
+                         int deviceId, SetPropertyPinAction action, long now) {
+        String body = action.makeHardwareBody();
+        session.sendToApps(SET_WIDGET_PROPERTY, 888, dash.id, deviceId, body);
+
+        Widget widget = dash.updateProperty(deviceId, action.dataStream.pin, action.property, action.value);
+        //this is possible case for device selector
+        if (widget == null) {
+            profile.putPinPropertyStorageValue(dash, deviceId,
+                    PinType.VIRTUAL, action.dataStream.pin, action.property, action.value);
+        }
+        dash.updatedAt = now;
     }
 }

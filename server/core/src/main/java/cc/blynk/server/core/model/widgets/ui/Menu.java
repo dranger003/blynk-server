@@ -1,6 +1,10 @@
 package cc.blynk.server.core.model.widgets.ui;
 
+import cc.blynk.server.core.model.enums.PinMode;
+import cc.blynk.server.core.model.enums.WidgetProperty;
 import cc.blynk.server.core.model.widgets.OnePinWidget;
+import cc.blynk.server.core.model.widgets.outputs.TextAlignment;
+import cc.blynk.server.core.model.widgets.outputs.graph.FontSize;
 import cc.blynk.utils.StringUtils;
 
 /**
@@ -14,9 +18,15 @@ public class Menu extends OnePinWidget {
 
     public String hint;
 
+    public TextAlignment alignment;
+
+    public FontSize fontSize;
+
+    public int iconColor;
+
     @Override
-    public String getModeType() {
-        return "out";
+    public PinMode getModeType() {
+        return PinMode.out;
     }
 
     @Override
@@ -25,14 +35,13 @@ public class Menu extends OnePinWidget {
     }
 
     @Override
-    public void setProperty(String property, String propertyValue) {
+    public boolean setProperty(WidgetProperty property, String propertyValue) {
         switch (property) {
-            case "labels" :
+            case LABELS :
                 this.labels = propertyValue.split(StringUtils.BODY_SEPARATOR_STRING);
-                break;
+                return true;
             default:
-                super.setProperty(property, propertyValue);
-                break;
+                return super.setProperty(property, propertyValue);
         }
     }
 }

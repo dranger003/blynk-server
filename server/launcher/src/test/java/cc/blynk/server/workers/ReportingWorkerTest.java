@@ -1,24 +1,24 @@
 package cc.blynk.server.workers;
 
 import cc.blynk.server.core.BlockingIOProcessor;
-import cc.blynk.server.core.dao.ReportingDao;
-import cc.blynk.server.core.model.AppName;
+import cc.blynk.server.core.dao.ReportingDiskDao;
 import cc.blynk.server.core.model.auth.User;
-import cc.blynk.server.core.model.enums.GraphGranularityType;
 import cc.blynk.server.core.model.enums.PinType;
-import cc.blynk.server.core.protocol.handlers.DefaultExceptionHandler;
+import cc.blynk.server.core.model.widgets.outputs.graph.GraphGranularityType;
 import cc.blynk.server.core.reporting.average.AggregationKey;
 import cc.blynk.server.core.reporting.average.AggregationValue;
 import cc.blynk.server.core.reporting.average.AverageAggregatorProcessor;
-import cc.blynk.server.db.DBManager;
-import cc.blynk.utils.ServerProperties;
+import cc.blynk.server.db.ReportingDBManager;
+import cc.blynk.utils.AppNameUtil;
+import cc.blynk.utils.properties.ServerProperties;
 import org.apache.commons.io.FileUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import org.mockito.runners.MockitoJUnitRunner;
+import org.mockito.junit.MockitoJUnitRunner;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -30,9 +30,11 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.concurrent.ConcurrentHashMap;
 
-import static cc.blynk.server.core.dao.ReportingDao.generateFilename;
-import static cc.blynk.utils.ReportingUtil.getReportingFolder;
-import static org.junit.Assert.*;
+import static cc.blynk.server.core.dao.ReportingDiskDao.generateFilename;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.when;
 
 /**
@@ -40,16 +42,17 @@ import static org.mockito.Mockito.when;
  * Created by Dmitriy Dumanskiy.
  * Created on 11.08.15.
  */
-@RunWith(MockitoJUnitRunner.class)
+@RunWith(MockitoJUnitRunner.Silent.class)
 public class ReportingWorkerTest {
 
-    private final String reportingFolder = getReportingFolder(System.getProperty("java.io.tmpdir"));
+    private final static Logger log = LogManager.getLogger(ReportingWorkerTest.class);
+
+    private final String reportingFolder = Paths.get(System.getProperty("java.io.tmpdir"), "data").toString();
 
     @Mock
     public AverageAggregatorProcessor averageAggregator;
 
-    @InjectMocks
-    public ReportingDao reportingDaoMock;
+    public ReportingDiskDao reportingDaoMock;
 
     @Mock
     public ServerProperties properties;
@@ -67,7 +70,7 @@ public class ReportingWorkerTest {
         FileUtils.deleteDirectory(dataFolder2.toFile());
         createReportingFolder(reportingFolder, "test2");
 
-        reportingDaoMock = new ReportingDao(reportingFolder, averageAggregator, properties);
+        reportingDaoMock = new ReportingDiskDao(reportingFolder, averageAggregator, true);
     }
 
     private static void createReportingFolder(String reportingFolder, String email) {
@@ -76,23 +79,25 @@ public class ReportingWorkerTest {
             try {
                 Files.createDirectories(reportingPath);
             } catch (IOException ioe) {
-                DefaultExceptionHandler.log.error("Error creating report folder. {}", reportingPath);
+                log.error("Error creating report folder. {}", reportingPath);
             }
         }
     }
 
     @Test
-    public void testFailure() throws IOException {
+    public void testFailure() {
         User user = new User();
         user.email = "test";
-        user.appName = AppName.BLYNK;
-        ReportingWorker reportingWorker = new ReportingWorker(reportingDaoMock, reportingFolder, new DBManager(blockingIOProcessor, true));
+        user.appName = AppNameUtil.BLYNK;
+        ReportingWorker reportingWorker = new ReportingWorker(reportingDaoMock,
+                reportingFolder, new ReportingDBManager(blockingIOProcessor, true));
 
         ConcurrentHashMap<AggregationKey, AggregationValue> map = new ConcurrentHashMap<>();
 
         long ts = getTS() / AverageAggregatorProcessor.HOUR;
 
-        AggregationKey aggregationKey = new AggregationKey("ddd\0+123@gmail.com", AppName.BLYNK, 1, 0, PinType.ANALOG.pintTypeChar, (byte) 1, ts);
+        AggregationKey aggregationKey = new AggregationKey("ddd\0+123@gmail.com",
+                AppNameUtil.BLYNK, 1, 0, PinType.ANALOG, (short) 1, ts);
         AggregationValue aggregationValue = new AggregationValue();
         aggregationValue.update(100);
 
@@ -105,23 +110,24 @@ public class ReportingWorkerTest {
     }
 
     @Test
-    public void testStore() throws IOException {
+    public void testStore() {
         User user = new User();
         user.email = "test";
-        user.appName = AppName.BLYNK;
-        ReportingWorker reportingWorker = new ReportingWorker(reportingDaoMock, reportingFolder, new DBManager(blockingIOProcessor, true));
+        user.appName = AppNameUtil.BLYNK;
+        ReportingWorker reportingWorker = new ReportingWorker(reportingDaoMock,
+                reportingFolder, new ReportingDBManager(blockingIOProcessor, true));
 
         ConcurrentHashMap<AggregationKey, AggregationValue> map = new ConcurrentHashMap<>();
 
         long ts = getTS() / AverageAggregatorProcessor.HOUR;
 
-        AggregationKey aggregationKey = new AggregationKey("test", AppName.BLYNK, 1, 0, PinType.ANALOG.pintTypeChar, (byte) 1, ts);
+        AggregationKey aggregationKey = new AggregationKey("test", AppNameUtil.BLYNK, 1, 0, PinType.ANALOG, (short) 1, ts);
         AggregationValue aggregationValue = new AggregationValue();
         aggregationValue.update(100);
-        AggregationKey aggregationKey2 = new AggregationKey("test", AppName.BLYNK, 1, 0, PinType.ANALOG.pintTypeChar, (byte) 1, ts - 1);
+        AggregationKey aggregationKey2 = new AggregationKey("test", AppNameUtil.BLYNK, 1, 0, PinType.ANALOG, (short) 1, ts - 1);
         AggregationValue aggregationValue2 = new AggregationValue();
         aggregationValue2.update(150.54);
-        AggregationKey aggregationKey3 = new AggregationKey("test2", AppName.BLYNK, 2, 0, PinType.ANALOG.pintTypeChar, (byte) 2, ts);
+        AggregationKey aggregationKey3 = new AggregationKey("test2", AppNameUtil.BLYNK, 2, 0, PinType.ANALOG, (short) 2, ts);
         AggregationValue aggregationValue3 = new AggregationValue();
         aggregationValue3.update(200);
 
@@ -135,14 +141,15 @@ public class ReportingWorkerTest {
 
         reportingWorker.run();
 
-        assertTrue(Files.exists(Paths.get(reportingFolder, "test", generateFilename(1, 0, PinType.ANALOG.pintTypeChar, (byte) 1, GraphGranularityType.HOURLY))));
-        assertTrue(Files.exists(Paths.get(reportingFolder, "test2", generateFilename(2, 0, PinType.ANALOG.pintTypeChar, (byte) 2, GraphGranularityType.HOURLY))));
+        assertTrue(Files.exists(Paths.get(reportingFolder, "test",
+                generateFilename(1, 0, PinType.ANALOG, (short) 1, GraphGranularityType.HOURLY))));
+        assertTrue(Files.exists(Paths.get(reportingFolder, "test2",
+                generateFilename(2, 0, PinType.ANALOG, (short) 2, GraphGranularityType.HOURLY))));
 
         assertTrue(map.isEmpty());
 
-        ByteBuffer data = ReportingDao.getByteBufferFromDisk(reportingFolder, user, 1, 0, PinType.ANALOG, (byte) 1, 2, GraphGranularityType.HOURLY);
+        ByteBuffer data = reportingDaoMock.getByteBufferFromDisk(user, 1, 0, PinType.ANALOG, (short) 1, 2, GraphGranularityType.HOURLY, 0);
         assertNotNull(data);
-        data.flip();
         assertEquals(32, data.capacity());
 
         assertEquals(150.54, data.getDouble(), 0.001);
@@ -153,30 +160,30 @@ public class ReportingWorkerTest {
 
         User user2 = new User();
         user2.email = "test2";
-        user2.appName = AppName.BLYNK;
-        data = ReportingDao.getByteBufferFromDisk(reportingFolder, user2, 2, 0, PinType.ANALOG, (byte) 2, 1, GraphGranularityType.HOURLY);
+        user2.appName = AppNameUtil.BLYNK;
+        data = reportingDaoMock.getByteBufferFromDisk(user2, 2, 0, PinType.ANALOG, (short) 2, 1, GraphGranularityType.HOURLY, 0);
         assertNotNull(data);
-        data.flip();
         assertEquals(16, data.capacity());
         assertEquals(200.0, data.getDouble(), 0.001);
         assertEquals(ts * AverageAggregatorProcessor.HOUR, data.getLong());
     }
 
     @Test
-    public void testStore2() throws IOException {
-        ReportingWorker reportingWorker = new ReportingWorker(reportingDaoMock, reportingFolder, new DBManager(blockingIOProcessor, true));
+    public void testStore2() {
+        ReportingWorker reportingWorker = new ReportingWorker(reportingDaoMock,
+                reportingFolder, new ReportingDBManager(blockingIOProcessor, true));
 
         ConcurrentHashMap<AggregationKey, AggregationValue> map = new ConcurrentHashMap<>();
 
         long ts = getTS() / AverageAggregatorProcessor.HOUR;
 
-        AggregationKey aggregationKey = new AggregationKey("test", AppName.BLYNK, 1, 0, PinType.ANALOG.pintTypeChar, (byte) 1, ts);
+        AggregationKey aggregationKey = new AggregationKey("test", AppNameUtil.BLYNK, 1, 0, PinType.ANALOG, (short) 1, ts);
         AggregationValue aggregationValue = new AggregationValue();
         aggregationValue.update(100);
-        AggregationKey aggregationKey2 = new AggregationKey("test", AppName.BLYNK, 1, 0, PinType.ANALOG.pintTypeChar, (byte) 1, ts - 1);
+        AggregationKey aggregationKey2 = new AggregationKey("test", AppNameUtil.BLYNK, 1, 0, PinType.ANALOG, (short) 1, ts - 1);
         AggregationValue aggregationValue2 = new AggregationValue();
         aggregationValue2.update(150.54);
-        AggregationKey aggregationKey3 = new AggregationKey("test", AppName.BLYNK, 1, 0, PinType.ANALOG.pintTypeChar, (byte) 1, ts - 2);
+        AggregationKey aggregationKey3 = new AggregationKey("test", AppNameUtil.BLYNK, 1, 0, PinType.ANALOG, (short) 1, ts - 2);
         AggregationValue aggregationValue3 = new AggregationValue();
         aggregationValue3.update(200);
 
@@ -190,18 +197,18 @@ public class ReportingWorkerTest {
 
         reportingWorker.run();
 
-        assertTrue(Files.exists(Paths.get(reportingFolder, "test", generateFilename(1, 0, PinType.ANALOG.pintTypeChar, (byte) 1, GraphGranularityType.HOURLY))));
+        assertTrue(Files.exists(Paths.get(reportingFolder, "test",
+                generateFilename(1, 0, PinType.ANALOG, (short) 1, GraphGranularityType.HOURLY))));
 
         assertTrue(map.isEmpty());
 
         User user = new User();
         user.email = "test";
-        user.appName = AppName.BLYNK;
+        user.appName = AppNameUtil.BLYNK;
 
         //take less
-        ByteBuffer data = ReportingDao.getByteBufferFromDisk(reportingFolder, user, 1, 0, PinType.ANALOG, (byte) 1, 1, GraphGranularityType.HOURLY);
+        ByteBuffer data = reportingDaoMock.getByteBufferFromDisk(user, 1, 0, PinType.ANALOG, (short) 1, 1, GraphGranularityType.HOURLY, 0);
         assertNotNull(data);
-        data.flip();
         assertEquals(16, data.capacity());
 
         assertEquals(100.0, data.getDouble(), 0.001);
@@ -209,9 +216,8 @@ public class ReportingWorkerTest {
 
 
         //take more
-        data = ReportingDao.getByteBufferFromDisk(reportingFolder, user, 1, 0, PinType.ANALOG, (byte) 1, 24, GraphGranularityType.HOURLY);
+        data = reportingDaoMock.getByteBufferFromDisk(user, 1, 0, PinType.ANALOG, (short) 1, 24, GraphGranularityType.HOURLY, 0);
         assertNotNull(data);
-        data.flip();
         assertEquals(48, data.capacity());
 
         assertEquals(200.0, data.getDouble(), 0.001);
@@ -226,20 +232,21 @@ public class ReportingWorkerTest {
 
 
     @Test
-    public void testDeleteCommand() throws IOException {
-        ReportingWorker reportingWorker = new ReportingWorker(reportingDaoMock, reportingFolder, new DBManager(blockingIOProcessor, true));
+    public void testDeleteCommand() {
+        ReportingWorker reportingWorker = new ReportingWorker(reportingDaoMock,
+                reportingFolder, new ReportingDBManager(blockingIOProcessor, true));
 
         ConcurrentHashMap<AggregationKey, AggregationValue> map = new ConcurrentHashMap<>();
 
         long ts = getTS() / AverageAggregatorProcessor.HOUR;
 
-        AggregationKey aggregationKey = new AggregationKey("test", AppName.BLYNK, 1, 0, PinType.ANALOG.pintTypeChar, (byte) 1, ts);
+        AggregationKey aggregationKey = new AggregationKey("test", AppNameUtil.BLYNK, 1, 0, PinType.ANALOG, (short) 1, ts);
         AggregationValue aggregationValue = new AggregationValue();
         aggregationValue.update(100);
-        AggregationKey aggregationKey2 = new AggregationKey("test", AppName.BLYNK, 1, 0, PinType.ANALOG.pintTypeChar, (byte) 1, ts - 1);
+        AggregationKey aggregationKey2 = new AggregationKey("test", AppNameUtil.BLYNK, 1, 0, PinType.ANALOG, (short) 1, ts - 1);
         AggregationValue aggregationValue2 = new AggregationValue();
         aggregationValue2.update(150.54);
-        AggregationKey aggregationKey3 = new AggregationKey("test2", AppName.BLYNK, 2, 0, PinType.ANALOG.pintTypeChar, (byte) 2, ts);
+        AggregationKey aggregationKey3 = new AggregationKey("test2", AppNameUtil.BLYNK, 2, 0, PinType.ANALOG, (short) 2, ts);
         AggregationValue aggregationValue3 = new AggregationValue();
         aggregationValue3.update(200);
 
@@ -254,15 +261,15 @@ public class ReportingWorkerTest {
 
         reportingWorker.run();
 
-        assertTrue(Files.exists(Paths.get(reportingFolder, "test", generateFilename(1, 0, PinType.ANALOG.pintTypeChar, (byte) 1, GraphGranularityType.HOURLY))));
-        assertTrue(Files.exists(Paths.get(reportingFolder, "test2", generateFilename(2, 0, PinType.ANALOG.pintTypeChar, (byte) 2, GraphGranularityType.HOURLY))));
+        assertTrue(Files.exists(Paths.get(reportingFolder, "test", generateFilename(1, 0, PinType.ANALOG, (short) 1, GraphGranularityType.HOURLY))));
+        assertTrue(Files.exists(Paths.get(reportingFolder, "test2", generateFilename(2, 0, PinType.ANALOG, (short) 2, GraphGranularityType.HOURLY))));
 
         User user = new User();
         user.email = "test";
-        user.appName = AppName.BLYNK;
+        user.appName = AppNameUtil.BLYNK;
 
-        new ReportingDao(reportingFolder, properties).delete(user, 1, 0, PinType.ANALOG, (byte) 1);
-        assertFalse(Files.exists(Paths.get(reportingFolder, "test", generateFilename(1, 0, PinType.ANALOG.pintTypeChar, (byte) 1, GraphGranularityType.HOURLY))));
+        new ReportingDiskDao(reportingFolder, true).delete(user, 1, 0, PinType.ANALOG, (short) 1);
+        assertFalse(Files.exists(Paths.get(reportingFolder, "test", generateFilename(1, 0, PinType.ANALOG, (short) 1, GraphGranularityType.HOURLY))));
     }
 
     private long getTS() {

@@ -2,10 +2,9 @@ package cc.blynk.server.workers;
 
 import cc.blynk.server.core.dao.FileManager;
 import cc.blynk.server.core.dao.UserDao;
-import cc.blynk.server.core.model.DashBoard;
 import cc.blynk.server.core.model.auth.User;
+import cc.blynk.server.core.model.serialization.JsonParser;
 import cc.blynk.server.db.DBManager;
-import cc.blynk.utils.JsonParser;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -39,19 +38,6 @@ public class ProfileSaverWorker implements Runnable, Closeable {
         this.backupTs = 0;
     }
 
-    private static boolean isUpdated(long lastStart, User user) {
-        return (lastStart <= user.lastModifiedTs) || isDashUpdated(lastStart, user);
-    }
-
-    private static boolean isDashUpdated(long lastStart, User user) {
-        for (DashBoard dashBoard : user.profile.dashBoards) {
-            if (lastStart <= dashBoard.updatedAt) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     @Override
     public void run() {
         try {
@@ -64,7 +50,7 @@ public class ProfileSaverWorker implements Runnable, Closeable {
             dbManager.saveUsers(users);
 
             //backup only for local mode
-            if (!dbManager.isDBEnabled() && users.size() > 0) {
+            if (dbManager.dbIsNotEnabled() && users.size() > 0) {
                 archiveUser(now);
             }
 
@@ -79,6 +65,7 @@ public class ProfileSaverWorker implements Runnable, Closeable {
     private void archiveUser(long now) {
         if (now - backupTs > 86_400_000) {
             //it is time for backup, once per day.
+            log.info("Backup for user DB started...");
             backupTs = now;
             for (User user : userDao.users.values()) {
                 try {
@@ -88,14 +75,15 @@ public class ProfileSaverWorker implements Runnable, Closeable {
                     //ignore
                 }
             }
+            log.info("Backup for user DB finished.");
         }
     }
 
     private ArrayList<User> saveModified() {
-        ArrayList<User> users = new ArrayList<>();
+        var users = new ArrayList<User>();
 
         for (User user : userDao.getUsers().values()) {
-            if (isUpdated(lastStart, user)) {
+            if (user.isUpdated(lastStart)) {
                 try {
                     fileManager.overrideUserFile(user);
                     users.add(user);

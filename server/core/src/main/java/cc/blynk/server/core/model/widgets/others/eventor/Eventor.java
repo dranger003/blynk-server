@@ -1,8 +1,7 @@
 package cc.blynk.server.core.model.widgets.others.eventor;
 
-import cc.blynk.server.core.model.enums.PinType;
+import cc.blynk.server.core.model.enums.PinMode;
 import cc.blynk.server.core.model.widgets.NoPinWidget;
-import cc.blynk.server.core.model.widgets.Widget;
 import cc.blynk.server.core.model.widgets.others.eventor.model.action.BaseAction;
 import cc.blynk.server.core.model.widgets.others.eventor.model.action.SetPinAction;
 
@@ -28,33 +27,8 @@ public class Eventor extends NoPinWidget {
     }
 
     @Override
-    public boolean updateIfSame(int deviceId, byte pin, PinType type, String value) {
-        return false;
-    }
-
-    @Override
-    public void updateIfSame(Widget widget) {
-        //do nothing
-    }
-
-    @Override
-    public boolean isSame(int deviceId, byte pin, PinType type) {
-        return false;
-    }
-
-    @Override
-    public String getJsonValue() {
-        return null;
-    }
-
-    @Override
-    public String getModeType() {
-        return "out";
-    }
-
-    @Override
-    public String getValue(byte pin, PinType type) {
-        return null;
+    public PinMode getModeType() {
+        return PinMode.out;
     }
 
     @Override
@@ -65,8 +39,9 @@ public class Eventor extends NoPinWidget {
                     for (BaseAction action : rule.actions) {
                         if (action instanceof SetPinAction) {
                             SetPinAction setPinActionAction = (SetPinAction) action;
-                            if (setPinActionAction.pin != null) {
-                                append(sb, setPinActionAction.pin.pin, setPinActionAction.pin.pinType, getModeType());
+                            if (setPinActionAction.dataStream != null) {
+                                append(sb, setPinActionAction.dataStream.pin,
+                                        setPinActionAction.dataStream.pinType);
                             }
                         }
                     }

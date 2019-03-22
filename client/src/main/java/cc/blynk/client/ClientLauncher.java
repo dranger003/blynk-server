@@ -4,7 +4,6 @@ import cc.blynk.client.core.ActiveHardwareClient;
 import cc.blynk.client.core.AppClient;
 import cc.blynk.client.core.HardwareClient;
 import cc.blynk.client.enums.ClientMode;
-import cc.blynk.utils.ParseUtil;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.Options;
@@ -18,11 +17,11 @@ import java.io.InputStreamReader;
  * Created by Dmitriy Dumanskiy.
  * Created on 11.03.15.
  */
-public class ClientLauncher {
+public final class ClientLauncher {
 
     static final String DEFAULT_HOST = "localhost";
-    static final int DEFAULT_HARDWARE_PORT = 8442;
-    static final int DEFAULT_APPLICATION_PORT = 8443;
+    static final int DEFAULT_HARDWARE_PORT = 8080;
+    static final int DEFAULT_APPLICATION_PORT = 9443;
 
     private static final Options options = new Options();
 
@@ -33,13 +32,18 @@ public class ClientLauncher {
                .addOption("tokens", true, "Tokens");
     }
 
+    private ClientLauncher() {
+    }
+
     public static void main(String[] args) throws ParseException {
         CommandLine cmd = new DefaultParser().parse(options, args);
 
         ClientMode mode = ClientMode.parse(cmd.getOptionValue("mode", ClientMode.HARDWARE.name()));
         String host = cmd.getOptionValue("host", DEFAULT_HOST);
-        int port = ParseUtil.parseInt(cmd.getOptionValue("port",
-                        (mode == ClientMode.APP ? String.valueOf(DEFAULT_APPLICATION_PORT) : String.valueOf(DEFAULT_HARDWARE_PORT)))
+        int port = Integer.parseInt(cmd.getOptionValue("port",
+                        (mode == ClientMode.APP
+                                ? String.valueOf(DEFAULT_APPLICATION_PORT)
+                                : String.valueOf(DEFAULT_HARDWARE_PORT)))
         );
 
         switch (mode) {

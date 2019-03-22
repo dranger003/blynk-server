@@ -19,8 +19,8 @@ import static org.junit.Assert.assertEquals;
  */
 public class ReportingDataCleanerTest {
 
-    private static Path reportingPath = Paths.get("/tmp/test_reporting");
-    private static Path userPath = Paths.get("/tmp/test_reporting/test@test.gmail.com");
+    private static Path reportingPath = Paths.get(System.getProperty("java.io.tmpdir"), "test_reporting");
+    private static Path userPath = Paths.get(System.getProperty("java.io.tmpdir"), "test_reporting/test@test.gmail.com");
 
     @Before
     public void init() throws Exception {
@@ -53,7 +53,7 @@ public class ReportingDataCleanerTest {
     @Test
     public void testOverrideCorrectFlowAndCheckContent() throws Exception {
         Path userFile = Paths.get(userPath.toString(), "123_minute.bin");
-        int count = 361;
+        int count = 360;
         fillWithData(userFile, count);
 
         ReportingDataCleaner.main(new String[] {reportingPath.toString()});
@@ -61,8 +61,7 @@ public class ReportingDataCleanerTest {
         assertEquals(16 * 360, Files.size(userFile));
 
         ByteBuffer userReportingData = FileUtils.read(Paths.get(userPath.toString(), "123_minute.bin"), 360);
-        userReportingData.flip();
-        for (int i = 1; i < 361; i++) {
+        for (int i = 0; i < 360; i++) {
             double value = userReportingData.getDouble();
             long ts = userReportingData.getLong();
             assertEquals(i, (int) value);
@@ -78,10 +77,9 @@ public class ReportingDataCleanerTest {
 
         ReportingDataCleaner.main(new String[] {reportingPath.toString()});
 
-        assertEquals(16 * 360, Files.size(userFile));
+        assertEquals(11520, Files.size(userFile));
 
         ByteBuffer userReportingData = FileUtils.read(Paths.get(userPath.toString(), "123_minute.bin"), 360);
-        userReportingData.flip();
         for (int i = 360; i < 720; i++) {
             double value = userReportingData.getDouble();
             long ts = userReportingData.getLong();

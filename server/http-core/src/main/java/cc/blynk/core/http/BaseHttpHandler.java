@@ -1,16 +1,12 @@
 package cc.blynk.core.http;
 
-import cc.blynk.core.http.rest.Handler;
 import cc.blynk.core.http.rest.HandlerHolder;
+import cc.blynk.core.http.rest.HandlerWrapper;
 import cc.blynk.core.http.rest.URIDecoder;
 import cc.blynk.server.Holder;
 import cc.blynk.server.core.dao.SessionDao;
 import cc.blynk.server.core.dao.TokenManager;
-import cc.blynk.server.core.protocol.enums.Command;
-import cc.blynk.server.core.protocol.handlers.DefaultExceptionHandler;
 import cc.blynk.server.core.stats.GlobalStats;
-import cc.blynk.server.handlers.DefaultReregisterHandler;
-import cc.blynk.utils.AnnotationsUtil;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.handler.codec.http.FullHttpResponse;
@@ -19,68 +15,78 @@ import io.netty.util.ReferenceCountUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Map;
 import java.util.regex.Matcher;
+
+import static cc.blynk.core.http.Response.serverError;
+import static cc.blynk.server.core.protocol.handlers.DefaultExceptionHandler.handleUnexpectedException;
 
 /**
  * The Blynk Project.
  * Created by Dmitriy Dumanskiy.
  * Created on 24.12.15.
  */
-public abstract class BaseHttpHandler extends ChannelInboundHandlerAdapter implements DefaultReregisterHandler, DefaultExceptionHandler {
+public abstract class BaseHttpHandler extends ChannelInboundHandlerAdapter {
 
     protected static final Logger log = LogManager.getLogger(BaseHttpHandler.class);
 
     protected final TokenManager tokenManager;
     protected final SessionDao sessionDao;
-    protected final GlobalStats globalStats;
-    protected final Handler[] handlers;
+    protected final HandlerWrapper[] handlers;
     protected final String rootPath;
 
     public BaseHttpHandler(Holder holder, String rootPath) {
         this(holder.tokenManager, holder.sessionDao, holder.stats, rootPath);
     }
 
-    public BaseHttpHandler(TokenManager tokenManager, SessionDao sessionDao, GlobalStats globalStats, String rootPath) {
+    BaseHttpHandler(TokenManager tokenManager, SessionDao sessionDao,
+                           GlobalStats globalStats, String rootPath) {
         this.tokenManager = tokenManager;
         this.sessionDao = sessionDao;
-        this.globalStats = globalStats;
         this.rootPath = rootPath;
-        this.handlers = AnnotationsUtil.register(rootPath, this);
+        this.handlers = AnnotationsProcessor.register(rootPath, this, globalStats);
     }
 
     @Override
-    public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+    public void channelRead(ChannelHandlerContext ctx, Object msg) {
         if (msg instanceof HttpRequest) {
             HttpRequest req = (HttpRequest) msg;
 
-            process(ctx, req);
+            if (!process(ctx, req)) {
+                ctx.fireChannelRead(req);
+            }
         }
     }
 
-    public void process(ChannelHandlerContext ctx, HttpRequest req) {
+    public boolean process(ChannelHandlerContext ctx, HttpRequest req) {
         HandlerHolder handlerHolder = lookupHandler(req);
 
         if (handlerHolder != null) {
-            log.debug("{} : {}", req.method().name(), req.uri());
-            globalStats.mark(Command.HTTP_TOTAL);
-
             try {
-                URIDecoder uriDecoder = new URIDecoder(req);
-                uriDecoder.pathData = handlerHolder.extractParameters();
-                Object[] params = handlerHolder.handler.fetchParams(ctx, uriDecoder);
-                finishHttp(ctx, uriDecoder, handlerHolder.handler, params);
+                invokeHandler(ctx, req, handlerHolder.handler, handlerHolder.extractedParams);
             } catch (Exception e) {
-                ctx.writeAndFlush(Response.serverError(e.getMessage()), ctx.voidPromise());
+                log.debug("Error processing http request.", e);
+                ctx.writeAndFlush(serverError(e.getMessage()), ctx.voidPromise());
             } finally {
                 ReferenceCountUtil.release(req);
             }
+            return true;
+        }
 
-        } else {
-            ctx.fireChannelRead(req);
+        return false;
+    }
+
+    private void invokeHandler(ChannelHandlerContext ctx, HttpRequest req,
+                               HandlerWrapper handler, Map<String, String> extractedParams) {
+        log.debug("{} : {}", req.method().name(), req.uri());
+        try (URIDecoder uriDecoder = new URIDecoder(req, extractedParams)) {
+            Object[] params = handler.fetchParams(ctx, uriDecoder);
+            finishHttp(ctx, uriDecoder, handler, params);
         }
     }
 
-    public void finishHttp(ChannelHandlerContext ctx, URIDecoder uriDecoder, Handler handler, Object[] params) {
+    public void finishHttp(ChannelHandlerContext ctx, URIDecoder uriDecoder,
+                           HandlerWrapper handler, Object[] params) {
         FullHttpResponse response = handler.invoke(params);
         if (response != Response.NO_RESPONSE) {
             ctx.writeAndFlush(response);
@@ -88,11 +94,12 @@ public abstract class BaseHttpHandler extends ChannelInboundHandlerAdapter imple
     }
 
     private HandlerHolder lookupHandler(HttpRequest req) {
-        for (Handler handler : handlers) {
+        for (HandlerWrapper handler : handlers) {
             if (handler.httpMethod == req.method()) {
                 Matcher matcher = handler.uriTemplate.matcher(req.uri());
                 if (matcher.matches()) {
-                    return new HandlerHolder(handler, matcher);
+                    Map<String, String> extractedParams = handler.uriTemplate.extractParameters(matcher);
+                    return new HandlerHolder(handler, extractedParams);
                 }
             }
         }

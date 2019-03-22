@@ -61,7 +61,11 @@
 
         <Logger name="org.asynchttpclient.netty.channel" level="OFF" additivity="false" />
 
-        <Root>
+        <!-- turn off netty errors in debug mode for native library loading
+         https://github.com/blynkkk/blynk-server/issues/751 -->
+        <Logger name="io.netty" level="INFO" additivity="false" />
+
+        <Root level="info">
             <AppenderRef ref="userLog"/>
         </Root>
 

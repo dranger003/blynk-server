@@ -1,10 +1,10 @@
 package cc.blynk.server.core.model.widgets.ui;
 
+import cc.blynk.server.core.model.enums.PinMode;
 import cc.blynk.server.core.model.enums.PinType;
 import cc.blynk.server.core.model.widgets.OnePinWidget;
 import cc.blynk.server.core.model.widgets.others.rtc.StringToZoneId;
 import cc.blynk.server.core.model.widgets.others.rtc.ZoneIdToString;
-import cc.blynk.utils.ParseUtil;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 
@@ -25,15 +25,16 @@ public class TimeInput extends OnePinWidget {
 
     public String format;
 
-    public int[] days;
+    //from 1 to 7, starts from MONDAY (1)
+    public volatile int[] days;
 
-    public int startAt = -1;
+    public volatile int startAt = -1;
 
-    public int stopAt = -1;
+    public volatile int stopAt = -1;
 
     @JsonSerialize(using = ZoneIdToString.class)
     @JsonDeserialize(using = StringToZoneId.class, as = ZoneId.class)
-    public ZoneId tzName;
+    public volatile ZoneId tzName;
 
     public boolean isStartStopAllowed;
 
@@ -44,24 +45,20 @@ public class TimeInput extends OnePinWidget {
     public boolean isTimezoneAllowed;
 
     @Override
-    public boolean updateIfSame(int deviceId, byte pin, PinType type, String value) {
+    public boolean updateIfSame(int deviceId, short pin, PinType type, String value) {
         if (super.updateIfSame(deviceId, pin, type, value)) {
             String[] values = value.split(BODY_SEPARATOR_STRING);
             if (values.length > 2) {
                 startAt = calcTime(values[0]);
                 stopAt = calcTime(values[1]);
-                tzName = ZoneId.of(values[2]);
-                if (values.length == 3) {
+                tzName = StringToZoneId.parseZoneId(values[2]);
+                if (values.length == 3 || values[3].isEmpty()) {
                     days = null;
                 } else {
-                    if (values[3].isEmpty()) {
-                        days = null;
-                    } else {
-                        String[] daysString = values[3].split(",");
-                        days = new int[daysString.length];
-                        for (int i = 0; i < daysString.length; i++) {
-                            days[i] = ParseUtil.parseInt(daysString[i]);
-                        }
+                    String[] daysString = values[3].split(",");
+                    days = new int[daysString.length];
+                    for (int i = 0; i < daysString.length; i++) {
+                        days[i] = Integer.parseInt(daysString[i]);
                     }
                 }
             }
@@ -79,13 +76,13 @@ public class TimeInput extends OnePinWidget {
             case "" :
                 return NEVER;
             default :
-                return ParseUtil.parseInt(value);
+                return Integer.parseInt(value);
         }
     }
 
     @Override
-    public String getModeType() {
-        return "out";
+    public PinMode getModeType() {
+        return PinMode.out;
     }
 
     @Override

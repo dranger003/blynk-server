@@ -1,6 +1,9 @@
 package cc.blynk.server.core.model.widgets.controls;
 
+import cc.blynk.server.core.model.enums.PinMode;
+import cc.blynk.server.core.model.enums.WidgetProperty;
 import cc.blynk.server.core.model.widgets.OnePinWidget;
+import cc.blynk.server.core.model.widgets.outputs.graph.FontSize;
 
 /**
  * The Blynk Project.
@@ -15,9 +18,19 @@ public class Button extends OnePinWidget {
 
     public volatile String offLabel;
 
+    public FontSize fontSize;
+
     @Override
-    public String getModeType() {
-        return "out";
+    public String makeHardwareBody() {
+        if (isNotValid() || value == null) {
+            return null;
+        }
+        return makeHardwareBody(pinType, pin, value);
+    }
+
+    @Override
+    public PinMode getModeType() {
+        return PinMode.out;
     }
 
     @Override
@@ -26,17 +39,16 @@ public class Button extends OnePinWidget {
     }
 
     @Override
-    public void setProperty(String property, String propertyValue) {
+    public boolean setProperty(WidgetProperty property, String propertyValue) {
         switch (property) {
-            case "onLabel" :
+            case ON_LABEL :
                 this.onLabel = propertyValue;
-                break;
-            case "offLabel" :
+                return true;
+            case OFF_LABEL :
                 this.offLabel = propertyValue;
-                break;
+                return true;
             default:
-                super.setProperty(property, propertyValue);
-                break;
+                return super.setProperty(property, propertyValue);
         }
     }
 }

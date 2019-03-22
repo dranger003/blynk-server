@@ -5,24 +5,44 @@ import cc.blynk.server.core.model.device.Device;
 import cc.blynk.server.core.model.device.Tag;
 import cc.blynk.server.core.model.enums.PinType;
 import cc.blynk.server.core.model.enums.Theme;
+import cc.blynk.server.core.model.enums.WidgetProperty;
+import cc.blynk.server.core.model.serialization.JsonParser;
+import cc.blynk.server.core.model.serialization.View;
+import cc.blynk.server.core.model.storage.PinStorageKeyDeserializer;
+import cc.blynk.server.core.model.storage.PinStorageValueDeserializer;
+import cc.blynk.server.core.model.storage.key.DashPinPropertyStorageKey;
+import cc.blynk.server.core.model.storage.key.DashPinStorageKey;
+import cc.blynk.server.core.model.storage.key.PinStorageKey;
+import cc.blynk.server.core.model.storage.value.PinStorageValue;
+import cc.blynk.server.core.model.storage.value.SinglePinStorageValue;
+import cc.blynk.server.core.model.widgets.DeviceCleaner;
 import cc.blynk.server.core.model.widgets.MultiPinWidget;
 import cc.blynk.server.core.model.widgets.OnePinWidget;
-import cc.blynk.server.core.model.widgets.Target;
 import cc.blynk.server.core.model.widgets.Widget;
 import cc.blynk.server.core.model.widgets.controls.Timer;
+import cc.blynk.server.core.model.widgets.notifications.Mail;
 import cc.blynk.server.core.model.widgets.notifications.Notification;
+import cc.blynk.server.core.model.widgets.notifications.Twitter;
 import cc.blynk.server.core.model.widgets.others.eventor.Eventor;
 import cc.blynk.server.core.model.widgets.others.webhook.WebHook;
 import cc.blynk.server.core.model.widgets.ui.DeviceSelector;
+import cc.blynk.server.core.model.widgets.ui.reporting.ReportingWidget;
+import cc.blynk.server.core.model.widgets.ui.tiles.DeviceTiles;
+import cc.blynk.server.core.model.widgets.ui.tiles.TileTemplate;
 import cc.blynk.server.core.protocol.exceptions.IllegalCommandException;
 import cc.blynk.server.workers.timer.TimerWorker;
-import cc.blynk.utils.JsonParser;
-import cc.blynk.utils.ParseUtil;
+import cc.blynk.utils.ArrayUtil;
+import com.fasterxml.jackson.annotation.JsonView;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Map;
 
-import static cc.blynk.utils.ArrayUtil.*;
+import static cc.blynk.server.internal.EmptyArraysUtil.EMPTY_DEVICES;
+import static cc.blynk.server.internal.EmptyArraysUtil.EMPTY_TAGS;
+import static cc.blynk.server.internal.EmptyArraysUtil.EMPTY_WIDGETS;
 
 /**
  * User: ddumanskiy
@@ -33,6 +53,7 @@ public class DashBoard {
 
     //-1 means this is not child project
     private static final int IS_PARENT_DASH = -1;
+    private static final String DEFAULT_NAME = "New Project";
 
     public int id;
 
@@ -58,45 +79,98 @@ public class DashBoard {
 
     public volatile boolean isAppConnectedOn;
 
+    public volatile boolean isNotificationsOff;
+
     public volatile boolean isShared;
 
     public volatile boolean isActive;
 
-    public volatile HardwareInfo hardwareInfo;
+    public volatile boolean widgetBackgroundOn;
 
+    public int color = -1;
+
+    public boolean isDefaultColor = true;
+
+    @JsonView(View.Private.class)
     public volatile String sharedToken;
 
-    @JsonDeserialize(keyUsing = PinStorageKeyDeserializer.class)
-    public Map<PinStorageKey, String> pinsStorage = Collections.emptyMap();
+    @JsonView(View.Private.class)
+    @JsonDeserialize(keyUsing = PinStorageKeyDeserializer.class,
+                     contentUsing = PinStorageValueDeserializer.class)
+    @Deprecated
+    public Map<PinStorageKey, PinStorageValue> pinsStorage = Collections.emptyMap();
 
-    public void update(final int deviceId, final byte pin, final PinType type, final String value, final long now) {
+    public boolean updateWidgets(int deviceId, short pin, PinType type, String value) {
         boolean hasWidget = false;
         for (Widget widget : widgets) {
             if (widget.updateIfSame(deviceId, pin, type, value)) {
                 hasWidget = true;
             }
         }
-        //special case. #237 if no widget - storing without widget.
-        if (!hasWidget) {
-            putPinStorageValue(deviceId, type, pin, value);
+        return hasWidget;
+    }
+
+    public String getNameOrEmpty() {
+        return name == null ? "" : name;
+    }
+
+    public String getNameOrDefault() {
+        return name == null ? DEFAULT_NAME : name;
+    }
+
+    //multi value widgets has always priority over single value widgets.
+    //for example, we have 2 widgets on the same pin, one it terminal, another is value display.
+    //so for that pin we have to return multivalue storage
+    public PinStorageValue initStorageValueForStorageKey(DashPinStorageKey key) {
+        if (!(key instanceof DashPinPropertyStorageKey)) {
+            for (Widget widget : widgets) {
+                if (widget instanceof OnePinWidget) {
+                    OnePinWidget onePinWidget = (OnePinWidget) widget;
+                    //pim matches and widget assigned to device selector
+                    if (onePinWidget.isAssignedToDeviceSelector() && key.isSame(id, onePinWidget)) {
+                        DeviceSelector deviceSelector = getDeviceSelector(onePinWidget.deviceId);
+                        if (deviceSelector != null && ArrayUtil.contains(deviceSelector.deviceIds, key.deviceId)) {
+                            if (widget.isMultiValueWidget()) {
+                                return widget.getPinStorageValue();
+                            }
+                        }
+                    }
+                } else if (widget instanceof MultiPinWidget) {
+                    MultiPinWidget multiPinWidget = (MultiPinWidget) widget;
+                    if (multiPinWidget.isAssignedToDeviceSelector() && key.isSame(id, multiPinWidget)) {
+                        DeviceSelector deviceSelector = getDeviceSelector(multiPinWidget.deviceId);
+                        if (deviceSelector != null && ArrayUtil.contains(deviceSelector.deviceIds, key.deviceId)) {
+                            if (widget.isMultiValueWidget()) {
+                                return widget.getPinStorageValue();
+                            }
+                        }
+                    }
+                } else if (widget instanceof DeviceTiles) {
+                    DeviceTiles deviceTiles = (DeviceTiles) widget;
+                    for (TileTemplate template : deviceTiles.templates) {
+                        if (ArrayUtil.contains(template.deviceIds, key.deviceId)) {
+                            for (Widget tileWidget : template.widgets) {
+                                if (tileWidget instanceof OnePinWidget) {
+                                    if (key.isSame(id, (OnePinWidget) tileWidget)) {
+                                        if (tileWidget.isMultiValueWidget()) {
+                                            return tileWidget.getPinStorageValue();
+                                        }
+                                    }
+                                } else if (tileWidget instanceof MultiPinWidget) {
+                                    if (key.isSame(id, (MultiPinWidget) tileWidget)) {
+                                        if (tileWidget.isMultiValueWidget()) {
+                                            return tileWidget.getPinStorageValue();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
-        this.updatedAt = now;
-    }
-
-    public void putPinPropertyStorageValue(int deviceId, PinType type, byte pin, String property, String value) {
-        puntPinStorageValue(new PinPropertyStorageKey(deviceId, type, pin, property), value);
-    }
-
-    private void putPinStorageValue(int deviceId, PinType type, byte pin, String value) {
-        puntPinStorageValue(new PinStorageKey(deviceId, type, pin), value);
-    }
-
-    private void puntPinStorageValue(PinStorageKey key, String value) {
-        if (pinsStorage == Collections.EMPTY_MAP) {
-            pinsStorage = new HashMap<>();
-        }
-        pinsStorage.put(key, value);
+        return new SinglePinStorageValue();
     }
 
     public void activate() {
@@ -109,13 +183,7 @@ public class DashBoard {
         updatedAt = System.currentTimeMillis();
     }
 
-    public Widget findWidgetByPin(int deviceId, String[] splitted) {
-        final PinType type = PinType.getPinType(splitted[0].charAt(0));
-        final byte pin = ParseUtil.parseByte(splitted[1]);
-        return findWidgetByPin(deviceId, pin, type);
-    }
-
-    public Widget findWidgetByPin(int deviceId, byte pin, PinType pinType) {
+    public Widget findWidgetByPin(int deviceId, short pin, PinType pinType) {
         for (Widget widget : widgets) {
             if (widget.isSame(deviceId, pin, pinType)) {
                 return widget;
@@ -124,7 +192,7 @@ public class DashBoard {
         return null;
     }
 
-    public WebHook findWebhookByPin(int deviceId, byte pin, PinType pinType) {
+    public WebHook findWebhookByPin(int deviceId, short pin, PinType pinType) {
         for (Widget widget : widgets) {
             if (widget instanceof WebHook) {
                 WebHook webHook = (WebHook) widget;
@@ -136,7 +204,7 @@ public class DashBoard {
         return null;
     }
 
-    public int getWidgetIndexByIdOrThrow(long id) {
+    public static int getWidgetIndexByIdOrThrow(Widget[] widgets, long id) {
         for (int i = 0; i < widgets.length; i++) {
             if (widgets[i].id == id) {
                 return i;
@@ -145,61 +213,23 @@ public class DashBoard {
         throw new IllegalCommandException("Widget with passed id not found.");
     }
 
-    public int getTagIndexById(int id) {
-        for (int i = 0; i < tags.length; i++) {
-            if (tags[i].id == id) {
-                return i;
-            }
-        }
-        throw new IllegalCommandException("Tag with passed id not found.");
+    public int getWidgetIndexByIdOrThrow(long id) {
+        return getWidgetIndexByIdOrThrow(widgets, id);
     }
 
-    public Tag getTagById(int id) {
-        for (Tag tag : tags) {
-            if (tag.id == id) {
-                return tag;
+    public boolean hasWidgetsByDeviceId(int deviceId) {
+        for (Widget widget : widgets) {
+            if (widget.isAssignedToDevice(deviceId)) {
+                return true;
             }
         }
-        return null;
+        return false;
     }
 
-    public int getDeviceIndexById(int id) {
-        for (int i = 0; i < devices.length; i++) {
-            if (devices[i].id == id) {
-                return i;
-            }
-        }
-        throw new IllegalCommandException("Device with passed id not found.");
-    }
-
-    /**
-     * Returns list of device ids that should receive user command.
-     * Widget could be assigned to specific device or to tag that
-     * is assigned to few devices or to device selector widget.
-     *
-     * @param targetId - deviceId or tagId or device selector widget id
-     */
-    public Target getTarget(int targetId) {
-        if (targetId < Tag.START_TAG_ID) {
-            return getDeviceById(targetId);
-        } else if (targetId < DeviceSelector.DEVICE_SELECTOR_STARTING_ID) {
-            return getTagById(targetId);
-        } else {
-            //means widget assigned to device selector widget.
-            Widget widget = getWidgetByIdOrThrow(targetId);
-            if (widget instanceof Target) {
-                return (Target) widget;
-            }
-        }
-
-        return null;
-    }
-
-    public Device getDeviceById(int id) {
-        for (Device device : devices) {
-            if (device.id == id) {
-                return device;
-            }
+    public DeviceSelector getDeviceSelector(long targetId) {
+        Widget widget = getWidgetById(targetId);
+        if (widget instanceof DeviceSelector) {
+            return (DeviceSelector) widget;
         }
         return null;
     }
@@ -209,6 +239,23 @@ public class DashBoard {
     }
 
     public Widget getWidgetById(long id) {
+        return getWidgetById(widgets, id);
+    }
+
+    public Widget getWidgetByIdInDeviceTilesOrThrow(long id) {
+        for (Widget widget : widgets) {
+            if (widget instanceof DeviceTiles) {
+                DeviceTiles deviceTiles = (DeviceTiles) widget;
+                Widget widgetInDeviceTiles = deviceTiles.getWidgetById(id);
+                if (widgetInDeviceTiles != null) {
+                    return widgetInDeviceTiles;
+                }
+            }
+        }
+        throw new IllegalCommandException("Widget with passed id not found.");
+    }
+
+    private static Widget getWidgetById(Widget[] widgets, long id) {
         for (Widget widget : widgets) {
             if (widget.id == id) {
                 return widget;
@@ -217,10 +264,31 @@ public class DashBoard {
         return null;
     }
 
-    public  <T> T getWidgetByType(Class<T> clazz) {
+    public Notification getNotificationWidget() {
+        return getWidgetByType(Notification.class);
+    }
+
+    public Eventor getEventorWidget() {
+        return getWidgetByType(Eventor.class);
+    }
+
+    public Twitter getTwitterWidget() {
+        return getWidgetByType(Twitter.class);
+    }
+
+    public Mail getMailWidget() {
+        return getWidgetByType(Mail.class);
+    }
+
+    public ReportingWidget getReportingWidget() {
+        return getWidgetByType(ReportingWidget.class);
+    }
+
+    @SuppressWarnings("unchecked")
+    public <T> T getWidgetByType(Class<T> clazz) {
         for (Widget widget : widgets) {
             if (clazz.isInstance(widget)) {
-                return clazz.cast(widget);
+                return (T) widget;
             }
         }
         return null;
@@ -230,6 +298,9 @@ public class DashBoard {
         StringBuilder sb = new StringBuilder("pm");
         for (Widget widget : widgets) {
             widget.append(sb, deviceId);
+        }
+        if (sb.length() == 2) {
+            return null;
         }
         return sb.toString();
     }
@@ -247,56 +318,31 @@ public class DashBoard {
         return sum;
     }
 
-    public void eraseValues() {
+    public void eraseWidgetValues() {
         for (Widget widget : widgets) {
-            if (widget instanceof OnePinWidget) {
-                ((OnePinWidget) widget).value = null;
-            }
-            if (widget instanceof MultiPinWidget) {
-                for (Pin pin : ((MultiPinWidget) widget).pins) {
-                    if (pin != null) {
-                        pin.value = null;
-                    }
-                }
-            }
+            widget.erase();
         }
     }
 
-    public void deleteTimers(TimerWorker timerWorker, UserKey userKey) {
+    public void eraseWidgetValuesForDevice(int deviceId) {
         for (Widget widget : widgets) {
-            if (widget instanceof Timer) {
-                timerWorker.delete(userKey, (Timer) widget, id);
-            } else if (widget instanceof Eventor) {
-                timerWorker.delete(userKey, (Eventor) widget, id);
+            if (widget.isAssignedToDevice(deviceId)) {
+                widget.erase();
+            }
+            if (widget instanceof DeviceCleaner) {
+                ((DeviceCleaner) widget).deleteDevice(deviceId);
             }
         }
     }
 
     public void addTimers(TimerWorker timerWorker, UserKey userKey) {
         for (Widget widget : widgets) {
-            if (widget instanceof Timer) {
-                timerWorker.add(userKey, (Timer) widget, id);
-            }
-            if (widget instanceof Eventor) {
+            if (widget instanceof DeviceTiles) {
+                timerWorker.add(userKey, (DeviceTiles) widget, id);
+            } else if (widget instanceof Timer) {
+                timerWorker.add(userKey, (Timer) widget, id, -1L, -1L);
+            } else if (widget instanceof Eventor) {
                 timerWorker.add(userKey, (Eventor) widget, id);
-            }
-        }
-    }
-
-    public void cleanPinStorage(Widget widget) {
-        if (widget instanceof OnePinWidget) {
-            OnePinWidget onePinWidget = (OnePinWidget) widget;
-            if (onePinWidget.pinType != null) {
-                pinsStorage.remove(new PinStorageKey(onePinWidget.deviceId, onePinWidget.pinType, onePinWidget.pin));
-            }
-        } else if (widget instanceof MultiPinWidget) {
-            MultiPinWidget multiPinWidget = (MultiPinWidget) widget;
-            if (multiPinWidget.pins != null) {
-                for (Pin pin : multiPinWidget.pins) {
-                    if (pin != null && pin.pinType != null) {
-                        pinsStorage.remove(new PinStorageKey(multiPinWidget.deviceId, pin.pinType, pin.pin));
-                    }
-                }
             }
         }
     }
@@ -308,6 +354,10 @@ public class DashBoard {
         this.theme = settings.theme;
         this.keepScreenOn = settings.keepScreenOn;
         this.isAppConnectedOn = settings.isAppConnectedOn;
+        this.isNotificationsOff = settings.isNotificationsOff;
+        this.widgetBackgroundOn = settings.widgetBackgroundOn;
+        this.color = settings.color;
+        this.isDefaultColor = settings.isDefaultColor;
         this.updatedAt = System.currentTimeMillis();
     }
 
@@ -317,10 +367,14 @@ public class DashBoard {
         this.theme = updatedDashboard.theme;
         this.keepScreenOn = updatedDashboard.keepScreenOn;
         this.isAppConnectedOn = updatedDashboard.isAppConnectedOn;
+        this.isNotificationsOff = updatedDashboard.isNotificationsOff;
+        this.widgetBackgroundOn = updatedDashboard.widgetBackgroundOn;
+        this.color = updatedDashboard.color;
+        this.isDefaultColor = updatedDashboard.isDefaultColor;
 
-        Notification newNotification = updatedDashboard.getWidgetByType(Notification.class);
+        Notification newNotification = updatedDashboard.getNotificationWidget();
         if (newNotification != null) {
-            Notification oldNotification = this.getWidgetByType(Notification.class);
+            Notification oldNotification = this.getNotificationWidget();
             if (oldNotification != null) {
                 newNotification.iOSTokens = oldNotification.iOSTokens;
                 newNotification.androidTokens = oldNotification.androidTokens;
@@ -328,12 +382,6 @@ public class DashBoard {
         }
 
         this.widgets = updatedDashboard.widgets;
-
-        for (Widget widget : widgets) {
-            cleanPinStorage(widget);
-        }
-
-        this.updatedAt = System.currentTimeMillis();
     }
 
     public void updateFaceFields(DashBoard parent) {
@@ -342,70 +390,80 @@ public class DashBoard {
         this.theme = parent.theme;
         this.keepScreenOn = parent.keepScreenOn;
         this.isAppConnectedOn = parent.isAppConnectedOn;
-        this.tags = copyTags(parent.tags);
+        this.isNotificationsOff = parent.isNotificationsOff;
+        this.widgetBackgroundOn = parent.widgetBackgroundOn;
+        this.color = parent.color;
+        this.isDefaultColor = parent.isDefaultColor;
         //do not update devices by purpose
         //this.devices = parent.devices;
-        this.widgets = copyWidgets(parent.widgets);
+        this.widgets = copyWidgetsAndPreservePrevValues(this.widgets, parent.widgets);
+        //export app specific requirement
+        for (Widget widget : widgets) {
+            widget.isDefaultColor = false;
+        }
     }
 
-    private Widget[] copyWidgets(Widget[] widgetsToCopy) {
-        if (widgetsToCopy.length == 0) {
-            return widgetsToCopy;
-        }
-        ArrayList<Widget> copy = new ArrayList<>(widgetsToCopy.length);
-        for (Widget newWidget : widgetsToCopy) {
-            Widget oldWidget = getWidgetById(newWidget.id);
+    private static Widget[] copyWidgetsAndPreservePrevValues(Widget[] oldWidgets, Widget[] newWidgets) {
+        ArrayList<Widget> copy = new ArrayList<>(newWidgets.length);
+        for (Widget newWidget : newWidgets) {
+            Widget oldWidget = getWidgetById(oldWidgets, newWidget.id);
 
-            String copyWidgetString = JsonParser.toJson(newWidget);
-            Widget copyWidget = JsonParser.parseWidget(copyWidgetString);
+            Widget copyWidget = newWidget.copy();
+
+            //for now erasing only for this types, not sure about DeviceTiles
+            if (copyWidget instanceof OnePinWidget
+                    || copyWidget instanceof MultiPinWidget
+                    || copyWidget instanceof ReportingWidget) {
+                copyWidget.erase();
+            }
 
             if (oldWidget != null) {
-                if (oldWidget instanceof OnePinWidget) {
-                    OnePinWidget onePinWidget = (OnePinWidget) oldWidget;
-                    if (onePinWidget.value != null) {
-                        copyWidget.updateIfSame(oldWidget);
-                    }
-                } else {
-                    copyWidget.updateIfSame(oldWidget);
-                }
+                copyWidget.updateValue(oldWidget);
             }
-            copyWidget.isDefaultColor = false;
             copy.add(copyWidget);
         }
 
-        return copy.toArray(new Widget[widgetsToCopy.length]);
+        return copy.toArray(new Widget[newWidgets.length]);
     }
 
-    private Tag[] copyTags(Tag[] tagsToCopy) {
-        if (tagsToCopy.length == 0) {
-            return tagsToCopy;
+    public Widget updateProperty(int deviceId, short pin, WidgetProperty widgetProperty, String propertyValue) {
+        Widget widget = null;
+        for (Widget dashWidget : widgets) {
+            if (dashWidget.isSame(deviceId, pin, PinType.VIRTUAL)) {
+                if (dashWidget.setProperty(widgetProperty, propertyValue)) {
+                    widget = dashWidget;
+                }
+            }
         }
-        Tag[] copy = new Tag[tagsToCopy.length];
-        for (int i = 0; i < copy.length; i++) {
-            copy[i] = tagsToCopy[i].copy();
-        }
-        return copy;
+        return widget;
     }
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
 
         DashBoard dashBoard = (DashBoard) o;
 
-        if (id != dashBoard.id) return false;
-        if (name != null ? !name.equals(dashBoard.name) : dashBoard.name != null) return false;
-        if (!Arrays.equals(widgets, dashBoard.widgets)) return false;
-
-        return true;
+        if (id != dashBoard.id) {
+            return false;
+        }
+        if (name != null ? !name.equals(dashBoard.name) : dashBoard.name != null) {
+            return false;
+        }
+        // Probably incorrect - comparing Object[] arrays with Arrays.equals
+        return Arrays.equals(widgets, dashBoard.widgets);
     }
 
     @Override
     public int hashCode() {
-        int result = (id ^ (id >>> 32));
+        int result = id;
         result = 31 * result + (name != null ? name.hashCode() : 0);
-        result = 31 * result + (widgets != null ? Arrays.hashCode(widgets) : 0);
+        result = 31 * result + Arrays.hashCode(widgets);
         return result;
     }
 
@@ -414,7 +472,4 @@ public class DashBoard {
         return JsonParser.toJson(this);
     }
 
-    public String toStringRestrictive() {
-        return JsonParser.toJsonRestrictiveDashboard(this);
-    }
 }

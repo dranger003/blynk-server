@@ -1,10 +1,10 @@
 package cc.blynk.server.core.reporting.average;
 
-import cc.blynk.server.core.dao.ReportingDao;
-import cc.blynk.server.core.model.AppName;
+import cc.blynk.server.core.dao.ReportingDiskDao;
 import cc.blynk.server.core.model.auth.User;
 import cc.blynk.server.core.model.enums.PinType;
-import cc.blynk.utils.ServerProperties;
+import cc.blynk.server.core.reporting.raw.BaseReportingKey;
+import cc.blynk.utils.AppNameUtil;
 import org.junit.Test;
 
 import java.io.IOException;
@@ -13,11 +13,9 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
-import java.util.Collections;
 
 import static cc.blynk.server.core.reporting.average.AverageAggregatorProcessor.DAY;
 import static cc.blynk.server.core.reporting.average.AverageAggregatorProcessor.HOUR;
-import static cc.blynk.utils.ReportingUtil.getReportingFolder;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
@@ -28,7 +26,7 @@ import static org.junit.Assert.assertTrue;
  */
 public class AverageAggregatorTest {
 
-    private final String reportingFolder = getReportingFolder(System.getProperty("java.io.tmpdir"));
+    private final String reportingFolder = Paths.get(System.getProperty("java.io.tmpdir"), "data").toString();
 
     private static long getMillis(int year, int month, int dayOfMonth, int hour, int minute) {
         LocalDateTime dateTime = LocalDateTime.of(year, month, dayOfMonth, hour, minute);
@@ -40,11 +38,11 @@ public class AverageAggregatorTest {
         AverageAggregatorProcessor averageAggregator = new AverageAggregatorProcessor("");
         User user = new User();
         user.email = "test@test.com";
-        user.appName = AppName.BLYNK;
+        user.appName = AppNameUtil.BLYNK;
 
-        char pinType = PinType.VIRTUAL.pintTypeChar;
+        PinType pinType = PinType.VIRTUAL;
         int dashId = 1;
-        byte pin = 1;
+        short pin = 1;
 
         long ts = getMillis(2015, 8, 1, 0, 0);
 
@@ -53,7 +51,7 @@ public class AverageAggregatorTest {
         double expectedAverage = 0;
         for (int i = 0; i < COUNT; i++) {
             expectedAverage += i;
-            averageAggregator.collect(user, dashId, 0, pinType, pin, ts, i);
+            averageAggregator.collect(new BaseReportingKey(user.email, user.appName, dashId, 0, pinType, pin), ts, i);
         }
         expectedAverage /= COUNT;
 
@@ -69,10 +67,10 @@ public class AverageAggregatorTest {
         AverageAggregatorProcessor averageAggregator = new AverageAggregatorProcessor("");
         User user = new User();
         user.email = "test@test.com";
-        user.appName = AppName.BLYNK;
-        char pinType = PinType.VIRTUAL.pintTypeChar;
+        user.appName = AppNameUtil.BLYNK;
+        PinType pinType = PinType.VIRTUAL;
         int dashId = 1;
-        byte pin = 1;
+        short pin = 1;
 
         double expectedDailyAverage = 0;
 
@@ -84,7 +82,7 @@ public class AverageAggregatorTest {
             double expectedAverage = 0;
             for (int i = 0; i < COUNT; i++) {
                 expectedAverage += i;
-                averageAggregator.collect(user, dashId, 0, pinType, pin, ts, i);
+                averageAggregator.collect(new BaseReportingKey(user.email, user.appName, dashId, 0, pinType, pin), ts, i);
             }
             expectedDailyAverage += expectedAverage;
             expectedAverage /= COUNT;
@@ -111,10 +109,10 @@ public class AverageAggregatorTest {
 
         User user = new User();
         user.email = "test@test.com";
-        user.appName = AppName.BLYNK;
-        char pinType = PinType.VIRTUAL.pintTypeChar;
+        user.appName = AppNameUtil.BLYNK;
+        PinType pinType = PinType.VIRTUAL;
         int dashId = 1;
-        byte pin = 1;
+        short pin = 1;
 
         double expectedDailyAverage = 0;
 
@@ -126,7 +124,7 @@ public class AverageAggregatorTest {
             double expectedAverage = 0;
             for (int i = 0; i < COUNT; i++) {
                 expectedAverage += i;
-                averageAggregator.collect(user, dashId, 0, pinType, pin, ts, i);
+                averageAggregator.collect(new BaseReportingKey(user.email, user.appName, dashId, 0, pinType, pin), ts, i);
             }
             expectedDailyAverage += expectedAverage;
             expectedAverage /= COUNT;
@@ -139,7 +137,7 @@ public class AverageAggregatorTest {
 
         assertEquals(24, averageAggregator.getHourly().size());
         assertEquals(1, averageAggregator.getDaily().size());
-        assertEquals(expectedDailyAverage, averageAggregator.getDaily().get(new AggregationKey(user.email, user.appName, dashId, 0, pinType, pin, getMillis(2015, 8, 1, 0, 0) / DAY)).calcAverage(), 0);
+        assertEquals(expectedDailyAverage, averageAggregator.getDaily().get(new AggregationKey(new BaseReportingKey(user.email, user.appName, dashId, 0, pinType, pin), getMillis(2015, 8, 1, 0, 0) / DAY)).calcAverage(), 0);
 
 
         averageAggregator.close();
@@ -151,12 +149,12 @@ public class AverageAggregatorTest {
 
         assertEquals(24, averageAggregator.getHourly().size());
         assertEquals(1, averageAggregator.getDaily().size());
-        assertEquals(expectedDailyAverage, averageAggregator.getDaily().get(new AggregationKey(user.email, user.appName, dashId, 0, pinType, pin, getMillis(2015, 8, 1, 0, 0) / DAY)).calcAverage(), 0);
+        assertEquals(expectedDailyAverage, averageAggregator.getDaily().get(new AggregationKey(new BaseReportingKey(user.email, user.appName, dashId, 0, pinType, pin), getMillis(2015, 8, 1, 0, 0) / DAY)).calcAverage(), 0);
 
         assertTrue(Files.notExists(Paths.get(reportingFolder, AverageAggregatorProcessor.HOURLY_TEMP_FILENAME)));
         assertTrue(Files.notExists(Paths.get(reportingFolder, AverageAggregatorProcessor.DAILY_TEMP_FILENAME)));
 
-        ReportingDao reportingDao = new ReportingDao(reportingFolder, new ServerProperties(Collections.emptyMap()));
+        ReportingDiskDao reportingDao = new ReportingDiskDao(reportingFolder, true);
 
         reportingDao.delete(user, dashId, 0, PinType.VIRTUAL, pin);
         assertTrue(Files.notExists(Paths.get(reportingFolder, AverageAggregatorProcessor.HOURLY_TEMP_FILENAME)));

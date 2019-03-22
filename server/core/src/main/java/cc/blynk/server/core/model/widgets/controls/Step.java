@@ -1,5 +1,7 @@
 package cc.blynk.server.core.model.widgets.controls;
 
+import cc.blynk.server.core.model.enums.PinMode;
+import cc.blynk.server.core.model.enums.WidgetProperty;
 import cc.blynk.server.core.model.widgets.OnePinWidget;
 
 /**
@@ -9,7 +11,7 @@ import cc.blynk.server.core.model.widgets.OnePinWidget;
  */
 public class Step extends OnePinWidget {
 
-    public float step;
+    public volatile float step;
 
     public boolean isArrowsOn;
 
@@ -17,18 +19,28 @@ public class Step extends OnePinWidget {
 
     public boolean isSendStep;
 
-    @Override
-    public boolean isPWMSupported() {
-        return pwmMode;
-    }
+    public int frequency;
+
+    public boolean showValueOn = true;
 
     @Override
-    public String getModeType() {
-        return "out";
+    public PinMode getModeType() {
+        return PinMode.out;
     }
 
     @Override
     public int getPrice() {
         return 500;
+    }
+
+    @Override
+    public boolean setProperty(WidgetProperty property, String propertyValue) {
+        switch (property) {
+            case STEP :
+                this.step = Float.parseFloat(propertyValue);
+                return true;
+            default:
+                return super.setProperty(property, propertyValue);
+        }
     }
 }

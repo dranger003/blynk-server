@@ -4,6 +4,7 @@ import cc.blynk.server.core.model.enums.PinType;
 import cc.blynk.server.core.protocol.enums.Command;
 import cc.blynk.server.core.protocol.model.messages.MessageFactory;
 import cc.blynk.server.core.protocol.model.messages.common.HardwareMessage;
+import cc.blynk.utils.NumberUtil;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
@@ -19,7 +20,7 @@ import java.util.concurrent.ThreadLocalRandom;
 public class HardwareEchoHandler extends SimpleChannelInboundHandler<HardwareMessage> {
 
     @Override
-    protected void channelRead0(ChannelHandlerContext ctx, HardwareMessage msg) throws Exception {
+    protected void channelRead0(ChannelHandlerContext ctx, HardwareMessage msg) {
         if (msg.body.charAt(1) == 'm') {
             return;
         }
@@ -28,7 +29,7 @@ public class HardwareEchoHandler extends SimpleChannelInboundHandler<HardwareMes
 
         PinType pinType = PinType.getPinType(split[0].charAt(0));
 
-        byte pin = Byte.parseByte(split[1]);
+        short pin = NumberUtil.parsePin(split[1]);
         //String value = split[2];
 
         switch (msg.body.charAt(1)) {
@@ -43,7 +44,7 @@ public class HardwareEchoHandler extends SimpleChannelInboundHandler<HardwareMes
         }
     }
 
-    private void read(ChannelHandlerContext ctx, PinType pinType, byte pin, int msgId) {
+    private void read(ChannelHandlerContext ctx, PinType pinType, short pin, int msgId) {
         String value = "";
         if (pinType == PinType.VIRTUAL) {
             if (pin == 0) {
@@ -59,13 +60,15 @@ public class HardwareEchoHandler extends SimpleChannelInboundHandler<HardwareMes
                 value = String.valueOf(ThreadLocalRandom.current().nextDouble(-100, 100));
             }
             if (pin == 11) {
-                ctx.writeAndFlush(MessageFactory.produce(msgId, Command.PUSH_NOTIFICATION, "You pressed button on V11"));
+                ctx.writeAndFlush(MessageFactory.produce(msgId,
+                        Command.PUSH_NOTIFICATION, "You pressed button on V11"));
             }
             if (pin == 12) {
                 value = String.valueOf("1234567890" + ThreadLocalRandom.current().nextDouble(100));
             }
             if (pin == 13) {
-                value = String.valueOf("123456789012345678901234567890" + ThreadLocalRandom.current().nextDouble(100));
+                value = String.valueOf("123456789012345678901234567890"
+                        + ThreadLocalRandom.current().nextDouble(100));
             }
 
         }

@@ -1,12 +1,14 @@
 package cc.blynk.client.core;
 
-import cc.blynk.client.CommandParser;
-import cc.blynk.server.core.protocol.enums.Command;
+import cc.blynk.client.CommandParserUtil;
 import cc.blynk.server.core.protocol.model.messages.MessageBase;
-import cc.blynk.utils.SHA256Util;
-import cc.blynk.utils.ServerProperties;
+import cc.blynk.utils.properties.ServerProperties;
 import io.netty.bootstrap.Bootstrap;
-import io.netty.channel.*;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelInitializer;
+import io.netty.channel.ChannelOption;
+import io.netty.channel.ConnectTimeoutException;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
@@ -14,11 +16,24 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.IOException;
 import java.nio.channels.UnresolvedAddressException;
 import java.util.Collections;
 import java.util.Random;
 
+import static cc.blynk.server.core.protocol.enums.Command.BRIDGE;
+import static cc.blynk.server.core.protocol.enums.Command.DELETE_WIDGET;
+import static cc.blynk.server.core.protocol.enums.Command.EMAIL;
+import static cc.blynk.server.core.protocol.enums.Command.EXPORT_GRAPH_DATA;
+import static cc.blynk.server.core.protocol.enums.Command.HARDWARE;
+import static cc.blynk.server.core.protocol.enums.Command.HARDWARE_RESEND_FROM_BLUETOOTH;
+import static cc.blynk.server.core.protocol.enums.Command.HARDWARE_SYNC;
+import static cc.blynk.server.core.protocol.enums.Command.LOAD_PROFILE_GZIPPED;
+import static cc.blynk.server.core.protocol.enums.Command.RESET_PASSWORD;
+import static cc.blynk.server.core.protocol.enums.Command.SET_WIDGET_PROPERTY;
+import static cc.blynk.server.core.protocol.enums.Command.SHARE_LOGIN;
+import static cc.blynk.server.core.protocol.enums.Command.SHARING;
 import static cc.blynk.server.core.protocol.model.messages.MessageFactory.produce;
 
 /**
@@ -63,28 +78,27 @@ public abstract class BaseClient {
         short command;
 
         try {
-            command = CommandParser.parseCommand(input[0]);
+            command = CommandParserUtil.parseCommand(input[0]);
         } catch (IllegalArgumentException e) {
             log.error("Command not supported {}", input[0]);
             return null;
         }
 
         String body = input.length == 1 ? "" : input[1];
-        if (command == Command.REGISTER || command == Command.LOGIN) {
-            String[] userPass = body.split(" ", 3);
-            if (userPass.length > 1) {
-                String email = userPass[0];
-                String pass = userPass[1];
-                body = email + "\0" + SHA256Util.makeHash(pass, email) + (userPass.length == 3 ? "\0" + userPass[2].replaceAll(" ", "\0") : "");
-            }
-        }
-        if (command == Command.SHARE_LOGIN || command == Command.GET_GRAPH_DATA) {
-            body = body.replaceAll(" ", "\0");
-        }
-        if (command == Command.HARDWARE || command == Command.BRIDGE || command == Command.EMAIL ||
-                command == Command.SHARING || command == Command.EXPORT_GRAPH_DATA || command == Command.SET_WIDGET_PROPERTY
-                || command == Command.HARDWARE_SYNC) {
-            body = body.replaceAll(" ", "\0");
+
+        if (command == HARDWARE
+                || command == SHARE_LOGIN
+                || command == LOAD_PROFILE_GZIPPED
+                || command == HARDWARE_RESEND_FROM_BLUETOOTH
+                || command == BRIDGE
+                || command == EMAIL
+                || command == SHARING
+                || command == EXPORT_GRAPH_DATA
+                || command == SET_WIDGET_PROPERTY
+                || command == HARDWARE_SYNC
+                || command == RESET_PASSWORD
+                || command == DELETE_WIDGET) {
+            body = body.replace(" ", "\0");
         }
         return produce(msgId, command, body);
     }
@@ -104,7 +118,8 @@ public abstract class BaseClient {
         } catch (UnresolvedAddressException uae) {
             log.error("Host name '{}' is invalid. Please make sure it is correct name.", host);
         } catch (ConnectTimeoutException cte) {
-            log.error("Timeout exceeded when connecting to '{}:{}'. Please make sure host available and port is open on target host.", host, port);
+            log.error("Timeout exceeded when connecting to '{}:{}'. "
+                    + "Please make sure host available and port is open on target host.", host, port);
         } catch (IOException | InterruptedException e) {
             log.error("Error running client. Shutting down.", e);
         } catch (Exception e) {
@@ -125,6 +140,18 @@ public abstract class BaseClient {
         } catch (InterruptedException e) {
             log.error(e);
         }
+    }
+
+    protected File makeCertificateFile(String propertyName) {
+        String path = props.getProperty(propertyName);
+        if (path == null || path.isEmpty()) {
+            path = "";
+        }
+        File file = new File(path);
+        if (!file.exists()) {
+            log.warn("{} file was not found at {} location", propertyName, path);
+        }
+        return file;
     }
 
     protected abstract ChannelInitializer<SocketChannel> getChannelInitializer();
@@ -157,6 +184,9 @@ public abstract class BaseClient {
     }
 
     public ChannelFuture stop() {
+        if (nioEventLoopGroup.isTerminated()) {
+            return channel.voidPromise();
+        }
         ChannelFuture channelFuture = channel.close().awaitUninterruptibly();
         nioEventLoopGroup.shutdownGracefully();
         return channelFuture;

@@ -3,7 +3,7 @@ package cc.blynk.client.core;
 import cc.blynk.client.handlers.ClientReplayingMessageDecoder;
 import cc.blynk.server.core.protocol.handlers.encoders.MessageEncoder;
 import cc.blynk.server.core.stats.GlobalStats;
-import cc.blynk.utils.ServerProperties;
+import cc.blynk.utils.properties.ServerProperties;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.socket.SocketChannel;
@@ -57,23 +57,11 @@ public class AppClient extends BaseClient {
         }
     }
 
-    private File makeCertificateFile(String propertyName) {
-        String path = props.getProperty(propertyName);
-        if (path == null || path.isEmpty()) {
-            path = "";
-        }
-        File file = new File(path);
-        if (!file.exists()) {
-            log.warn("{} file was not found at {} location", propertyName, path);
-        }
-        return file;
-    }
-
     @Override
     public ChannelInitializer<SocketChannel> getChannelInitializer() {
-        return new ChannelInitializer<SocketChannel>() {
+        return new ChannelInitializer<>() {
             @Override
-            public void initChannel(SocketChannel ch) throws Exception {
+            public void initChannel(SocketChannel ch) {
                 ChannelPipeline pipeline = ch.pipeline();
                 if (sslCtx != null) {
                     pipeline.addLast(sslCtx.newHandler(ch.alloc(), host, port));

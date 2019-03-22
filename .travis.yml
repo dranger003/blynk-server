@@ -1,12 +1,10 @@
 language: java
 
-addons:
-  apt:
-    packages:
-      - oracle-java8-installer
-
 jdk:
-  - oraclejdk8
+  - oraclejdk10
+
+addons:
+  postgresql: "9.5"
 
 services:
   - postgresql

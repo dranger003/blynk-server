@@ -217,10 +217,10 @@
                   "min":0,
                   "max":0,
                   "startTime":75600,
-                  "startValue":"dw\u00000\u00001",
+                  "startValue":"1",
                   "stopTime":75599,
-                  "stopValue":"dw\u00000\u00000",
-                  "value":"dw\u00000\u00001"
+                  "stopValue":"0",
+                  "value":"1"
 
                },
                {
@@ -256,7 +256,7 @@
                   "value":"87"
                },
                {
-                  "type":"GRAPH",
+                  "type":"LOGGER",
                   "id":1036300905,
                   "x":0,
                   "y":2,
@@ -657,6 +657,8 @@
                   "x":0,
                   "y":5,
                   "color":-1,
+                  "pinType":"VIRTUAL",
+                  "pin":17,
                   "width":8,
                   "height":3,
                   "pwmMode":false,
@@ -723,7 +725,7 @@
                   "frequency":0
                },
                {
-                  "type":"GRAPH",
+                  "type":"LABELED_VALUE_DISPLAY",
                   "id":5,
                   "x":0,
                   "y":3,

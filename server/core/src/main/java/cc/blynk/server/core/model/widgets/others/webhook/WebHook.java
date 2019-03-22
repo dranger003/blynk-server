@@ -1,8 +1,8 @@
 package cc.blynk.server.core.model.widgets.others.webhook;
 
+import cc.blynk.server.core.model.enums.PinMode;
 import cc.blynk.server.core.model.enums.PinType;
 import cc.blynk.server.core.model.widgets.OnePinWidget;
-import cc.blynk.server.core.model.widgets.Widget;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 
@@ -24,36 +24,21 @@ public class WebHook extends OnePinWidget {
 
     public transient volatile int failureCounter = 0;
 
-    public boolean isValidUrl() {
+    public static boolean isValidUrl(String url) {
         return url != null && !url.isEmpty() && url.regionMatches(true, 0, "http", 0, 4);
     }
 
-    public boolean isValid(int WEBHOOK_FAILURE_LIMIT) {
-        return isValidUrl() && failureCounter < WEBHOOK_FAILURE_LIMIT;
+    public boolean isNotFailed(int webhookFailureLimit) {
+        return failureCounter < webhookFailureLimit;
     }
 
     //a bit ugly but as quick fix ok
-    public boolean isSameWebHook(int deviceId, byte pin, PinType type) {
+    public boolean isSameWebHook(int deviceId, short pin, PinType type) {
         return super.isSame(deviceId, pin, type);
     }
 
     @Override
-    public boolean isSame(int deviceId, byte pin, PinType type) {
-        return false;
-    }
-
-    @Override
-    public boolean updateIfSame(int deviceId, byte pin, PinType type, String value) {
-        return false;
-    }
-
-    @Override
-    public void updateIfSame(Widget widget) {
-        //do nothing
-    }
-
-    @Override
-    public void sendAppSync(Channel appChannel, int dashId, int targetId) {
+    public void sendAppSync(Channel appChannel, int dashId, int targetId, boolean useNewSyncFormat) {
     }
 
     @Override
@@ -61,7 +46,18 @@ public class WebHook extends OnePinWidget {
     }
 
     @Override
-    public String getModeType() {
+    public boolean updateIfSame(int deviceId, short pin, PinType type, String value) {
+        return false;
+    }
+
+    @Override
+    public boolean isSame(int deviceId, short pin, PinType type) {
+        return false;
+    }
+
+    @Override
+    //supports only virtual pins
+    public PinMode getModeType() {
         return null;
     }
 

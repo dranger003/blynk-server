@@ -1,11 +1,10 @@
 package cc.blynk.server.core.model.auth;
 
-import cc.blynk.server.core.model.AppName;
+import cc.blynk.server.core.model.DashBoard;
 import cc.blynk.server.core.model.Profile;
+import cc.blynk.server.core.model.serialization.JsonParser;
 import cc.blynk.server.core.processors.NotificationBase;
-import cc.blynk.server.core.protocol.exceptions.EnergyLimitException;
-import cc.blynk.utils.JsonParser;
-import cc.blynk.utils.ParseUtil;
+import cc.blynk.utils.AppNameUtil;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
@@ -15,18 +14,20 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  */
 public class User {
 
-    private static final int INITIAL_ENERGY_AMOUNT = ParseUtil.parseInt(System.getProperty("initial.energy", "2000"));
+    private static final int INITIAL_ENERGY_AMOUNT = Integer.parseInt(System.getProperty("initial.energy", "2000"));
 
     public String name;
 
     //key fields
-	public String email;
+    public String email;
     public String appName;
     public String region;
+    public String ip;
 
     public volatile String pass;
 
-    //used mostly to understand if user profile was changed, all other fields update ignored as it is not so important
+    //used mostly to understand if user profile was changed,
+    // all other fields update ignored as it is not so important
     public volatile long lastModifiedTs;
 
     public String lastLoggedIP;
@@ -42,23 +43,47 @@ public class User {
     public transient int emailMessages;
     private transient long emailSentTs;
 
+    //used just for tests and serialization
     public User() {
         this.lastModifiedTs = System.currentTimeMillis();
         this.profile = new Profile();
         this.energy = INITIAL_ENERGY_AMOUNT;
         this.isFacebookUser = false;
-        this.appName = AppName.BLYNK;
+        this.appName = AppNameUtil.BLYNK;
     }
 
-    public User(String email, String pass, String appName, String region, boolean isFacebookUser, boolean isSuperAdmin) {
+    public User(String email, String passHash, String appName, String region, String ip,
+                boolean isFacebookUser, boolean isSuperAdmin) {
         this();
         this.email = email;
         this.name = email;
-        this.pass = pass;
+        this.pass = passHash;
         this.appName = appName;
         this.region = region;
+        this.ip = ip;
         this.isFacebookUser = isFacebookUser;
         this.isSuperAdmin = isSuperAdmin;
+    }
+
+    //used when user is fully read from DB
+    public User(String email, String passHash, String appName, String region, String ip,
+                boolean isFacebookUser, boolean isSuperAdmin, String name,
+                long lastModifiedTs, long lastLoggedAt, String lastLoggedIP,
+                Profile profile, int energy) {
+        this.email = email;
+        this.name = email;
+        this.pass = passHash;
+        this.appName = appName;
+        this.region = region;
+        this.ip = ip;
+        this.isFacebookUser = isFacebookUser;
+        this.isSuperAdmin = isSuperAdmin;
+        this.name = name;
+        this.lastModifiedTs = lastModifiedTs;
+        this.lastLoggedAt = lastLoggedAt;
+        this.lastLoggedIP = lastLoggedIP;
+        this.profile = profile;
+        this.energy = energy;
     }
 
     @JsonProperty("id")
@@ -66,21 +91,19 @@ public class User {
         return email + "-" + appName;
     }
 
+    public boolean notEnoughEnergy(int price) {
+        return price > energy && AppNameUtil.BLYNK.equals(appName);
+    }
+
+    @SuppressWarnings("NonAtomicOperationOnVolatileField")
     public void subtractEnergy(int price) {
-        if (AppName.BLYNK.equals(appName) && price > energy) {
-            throw new EnergyLimitException("Not enough energy.");
-        }
-        //non-atomic. we are fine with that
+        //non-atomic. we are fine with that, always updated from 1 thread
         this.energy -= price;
-        this.lastModifiedTs = System.currentTimeMillis();
     }
 
-    public void recycleEnergy(int price) {
-        purchaseEnergy(price);
-    }
-
-    public void purchaseEnergy(int price) {
-        //non-atomic. we are fine with that
+    @SuppressWarnings("NonAtomicOperationOnVolatileField")
+    public void addEnergy(int price) {
+        //non-atomic. we are fine with that, always updated from 1 thread
         this.energy += price;
         this.lastModifiedTs = System.currentTimeMillis();
     }
@@ -100,14 +123,38 @@ public class User {
         }
     }
 
+    public boolean isUpdated(long lastStart) {
+        return (lastStart <= lastModifiedTs) || isDashUpdated(lastStart);
+    }
+
+    public void resetPass(String hash) {
+        this.pass = hash;
+        this.lastModifiedTs = System.currentTimeMillis();
+    }
+
+    private boolean isDashUpdated(long lastStart) {
+        for (DashBoard dashBoard : profile.dashBoards) {
+            if (lastStart <= dashBoard.updatedAt) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (!(o instanceof User)) return false;
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof User)) {
+            return false;
+        }
 
         User user = (User) o;
 
-        if (email != null ? !email.equals(user.email) : user.email != null) return false;
+        if (email != null ? !email.equals(user.email) : user.email != null) {
+            return false;
+        }
         return !(appName != null ? !appName.equals(user.appName) : user.appName != null);
 
     }

@@ -9,15 +9,11 @@ import java.util.Iterator;
  * @version $Id: AmbiguousOptionException.java 1669814 2015-03-28 18:09:26Z britter $
  * @since 1.3
  */
-public class AmbiguousOptionException extends UnrecognizedOptionException
-{
+class AmbiguousOptionException extends UnrecognizedOptionException {
     /**
      * This exception {@code serialVersionUID}.
      */
     private static final long serialVersionUID = 5829816121277947229L;
-
-    /** The list of options matching the partial name specified */
-    private final Collection<String> matchingOptions;
 
     /**
      * Constructs a new AmbiguousOptionException.
@@ -25,30 +21,24 @@ public class AmbiguousOptionException extends UnrecognizedOptionException
      * @param option          the partial option name
      * @param matchingOptions the options matching the name
      */
-    public AmbiguousOptionException(String option, Collection<String> matchingOptions)
-    {
+    AmbiguousOptionException(String option, Collection<String> matchingOptions) {
         super(createMessage(option, matchingOptions), option);
-        this.matchingOptions = matchingOptions;
     }
 
     /**
      * Build the exception message from the specified list of options.
-     *
      */
-    private static String createMessage(String option, Collection<String> matchingOptions)
-    {
+    private static String createMessage(String option, Collection<String> matchingOptions) {
         StringBuilder buf = new StringBuilder("Ambiguous option: '");
         buf.append(option);
         buf.append("'  (could be: ");
 
         Iterator<String> it = matchingOptions.iterator();
-        while (it.hasNext())
-        {
+        while (it.hasNext()) {
             buf.append("'");
             buf.append(it.next());
             buf.append("'");
-            if (it.hasNext())
-            {
+            if (it.hasNext()) {
                 buf.append(", ");
             }
         }

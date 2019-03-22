@@ -1,6 +1,8 @@
 package cc.blynk.server.core.model.widgets.others;
 
+import cc.blynk.server.core.model.enums.PinMode;
 import cc.blynk.server.core.model.enums.PinType;
+import cc.blynk.server.core.model.enums.WidgetProperty;
 import cc.blynk.server.core.model.widgets.OnePinWidget;
 
 /**
@@ -13,7 +15,7 @@ public class Player extends OnePinWidget {
     public volatile boolean isOnPlay;
 
     @Override
-    public boolean updateIfSame(int deviceId, byte pin, PinType type, String value) {
+    public boolean updateIfSame(int deviceId, short pin, PinType type, String value) {
         if (isSame(deviceId, pin, type)) {
             this.value = value;
             switch (value) {
@@ -30,8 +32,8 @@ public class Player extends OnePinWidget {
     }
 
     @Override
-    public String getModeType() {
-        return "out";
+    public PinMode getModeType() {
+        return PinMode.out;
     }
 
     @Override
@@ -40,14 +42,13 @@ public class Player extends OnePinWidget {
     }
 
     @Override
-    public void setProperty(String property, String propertyValue) {
+    public boolean setProperty(WidgetProperty property, String propertyValue) {
         switch (property) {
-            case "isOnPlay" :
+            case IS_ON_PLAY :
                 this.isOnPlay = Boolean.parseBoolean(propertyValue);
-                break;
+                return true;
             default:
-                super.setProperty(property, propertyValue);
-                break;
+                return super.setProperty(property, propertyValue);
         }
     }
 }

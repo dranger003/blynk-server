@@ -5,30 +5,31 @@ import cc.blynk.server.core.model.auth.User;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collection;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 /**
  * The Blynk Project.
  * Created by Dmitriy Dumanskiy.
  * Created on 22.09.15.
  */
-class SharedTokenManager {
-
-    private final ConcurrentMap<String, SharedTokenValue> cache;
+public class SharedTokenManager {
 
     private static final Logger log = LogManager.getLogger(SharedTokenManager.class);
 
-    public SharedTokenManager(Iterable<User> users) {
-        this.cache = new ConcurrentHashMap<String, SharedTokenValue>() {{
-            for (User user : users) {
-                for (DashBoard dashBoard : user.profile.dashBoards) {
-                    if (dashBoard.sharedToken != null) {
-                        put(dashBoard.sharedToken, new SharedTokenValue(user, dashBoard.id));
-                    }
+    public static final String ALL = "*";
+
+    final ConcurrentHashMap<String, SharedTokenValue> cache;
+
+    SharedTokenManager(Collection<User> users) {
+        this.cache = new ConcurrentHashMap<>();
+        for (User user : users) {
+            for (DashBoard dashBoard : user.profile.dashBoards) {
+                if (dashBoard.sharedToken != null) {
+                    cache.put(dashBoard.sharedToken, new SharedTokenValue(user, dashBoard.id));
                 }
             }
-        }};
+        }
     }
 
     public void assignToken(User user, DashBoard dash, String newToken) {
@@ -48,7 +49,7 @@ class SharedTokenManager {
         log.info("Generated shared token for user {} and dashId {} is {}.", user.email, dash.id, newToken);
     }
 
-    public SharedTokenValue getUserByToken(String token) {
+    SharedTokenValue getUserByToken(String token) {
         return cache.get(token);
     }
 
